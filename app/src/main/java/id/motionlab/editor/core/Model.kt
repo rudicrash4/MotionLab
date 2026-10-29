@@ -44,6 +44,8 @@ data class Clip(
     /** Durasi total file sumber. 0 = tidak terbatas (gambar, teks, bentuk). */
     val sourceDurationMs: Long = 0L,
     val volume: Float = 1f,
+    val isMuted: Boolean = false,
+    val isReversed: Boolean = false,
     /** Nilai dasar properti (lihat [Props]). Properti yang tidak ada memakai nilai default. */
     val props: Map<String, Float> = emptyMap(),
     val keyframes: Map<String, KeyframeTrack> = emptyMap(),
@@ -83,6 +85,9 @@ data class Clip(
     val fadeOutMs: Long = 0L
 ) {
     val endMs: Long get() = startMs + durationMs
+
+    fun effectiveLocal(localMs: Double): Double =
+        if (isReversed) (durationMs.toDouble() - localMs).coerceIn(0.0, durationMs.toDouble()) else localMs
 
     fun baseValue(key: String): Float = props[key] ?: Props.def(key)
 
@@ -124,10 +129,10 @@ data class Clip(
     val hasSpeedRamp: Boolean get() = hasKeyframes(Props.SPEED)
 
     /** Kecepatan (kelipatan) pada waktu lokal klip. */
-    fun speedAt(localMs: Long): Float = speedMap.speedAt(localMs.toDouble())
+    fun speedAt(localMs: Long): Float = speedMap.speedAt(effectiveLocal(localMs.toDouble()))
 
     /** Posisi pada file sumber (ms, presisi desimal) untuk waktu lokal [localMs]. */
-    fun sourceTimeAt(localMs: Double): Double = sourceInMs.toDouble() + speedMap.offset(localMs)
+    fun sourceTimeAt(localMs: Double): Double = sourceInMs.toDouble() + speedMap.offset(effectiveLocal(localMs))
 
     fun sourceTimeAt(localMs: Long): Long = Math.round(sourceTimeAt(localMs.toDouble()))
 
@@ -160,6 +165,7 @@ data class Project(
     /** Sisi pendek resolusi ekspor (720 / 1080 / 2160). */
     val shortSide: Int = 1080,
     val fps: Int = 30,
+    val bgColor: Int = 0xFF000000.toInt(),
     val tracks: List<Track> = emptyList()
 ) {
     /** Apakah track ini terdengar (mute/solo/hidden video diperhitungkan). */

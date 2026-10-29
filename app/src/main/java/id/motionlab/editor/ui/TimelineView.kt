@@ -49,7 +49,7 @@ private class Metrics(
     val pad: Float
 )
 
-private fun Density.metrics() = Metrics(26.dp.toPx(), 46.dp.toPx(), 52.dp.toPx(), 22.dp.toPx(), 3.dp.toPx())
+private fun Density.metrics() = Metrics(28.dp.toPx(), 48.dp.toPx(), 68.dp.toPx(), 22.dp.toPx(), 3.dp.toPx())
 
 private sealed class Hit {
     object Ruler : Hit()
@@ -369,26 +369,38 @@ private fun DrawScope.drawTimeline(
         if (rowTop > h || rowTop + m.trackH < m.rulerH) continue
         clipRect(0f, m.rulerH, m.headerW, h) {
             drawRect(Palette.Panel2, Offset(0f, rowTop), Size(m.headerW - 1f, m.trackH))
+            // Left color accent strip
             drawRect(typeColor(track.type), Offset(0f, rowTop + m.pad), Size(4f, m.trackH - 2 * m.pad))
+
             val dim = track.hidden || (track.type == TrackType.AUDIO && track.muted)
-            labelPaint.alpha = if (dim) 110 else 255
-            drawContext.canvas.nativeCanvas.drawText(typeGlyph(track.type), 10f, rowTop + m.trackH * 0.42f, labelPaint)
+            labelPaint.alpha = if (dim) 100 else 255
+
+            // Eye icon indicator
+            val eyeText = if (track.hidden) "🚫" else "👁"
+            drawContext.canvas.nativeCanvas.drawText(eyeText, 10f, rowTop + m.trackH * 0.44f, mutedPaint)
+
+            // Layer type & index: e.g. "L1" or "L2"
+            val layerNum = "L${project.tracks.size - i}"
+            labelPaint.alpha = if (dim) 120 else 255
+            drawContext.canvas.nativeCanvas.drawText(layerNum, 36f, rowTop + m.trackH * 0.44f, labelPaint)
             labelPaint.alpha = 255
+
+            // Status label
             val state = buildString {
                 if (track.hidden) append("sembunyi ")
                 if (track.muted) append("mute ")
                 if (track.locked) append("kunci")
             }
             if (state.isNotEmpty()) {
-                drawContext.canvas.nativeCanvas.drawText(state.trim(), 10f, rowTop + m.trackH * 0.78f, mutedPaint)
+                drawContext.canvas.nativeCanvas.drawText(state.trim(), 10f, rowTop + m.trackH * 0.80f, mutedPaint)
             } else {
-                drawContext.canvas.nativeCanvas.drawText("L${project.tracks.size - i}", 10f, rowTop + m.trackH * 0.78f, mutedPaint)
+                drawContext.canvas.nativeCanvas.drawText(typeGlyph(track.type), 10f, rowTop + m.trackH * 0.80f, mutedPaint)
             }
         }
     }
 
     // ---- penggaris waktu ----
-    drawRect(Color(0xFF10131B), Offset.Zero, Size(w, m.rulerH))
+    drawRect(Palette.AppBg, Offset.Zero, Size(w, m.rulerH))
     clipRect(m.headerW, 0f, w, m.rulerH) {
         val steps = doubleArrayOf(0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 15.0, 30.0, 60.0, 120.0, 300.0, 600.0)
         val pxPerSec = pxPerMs * 1000f
@@ -411,16 +423,31 @@ private fun DrawScope.drawTimeline(
             t += stepMs
         }
     }
-    drawLine(Color(0x33FFFFFF), Offset(0f, m.rulerH), Offset(w, m.rulerH), 1f)
+    drawLine(Palette.Border, Offset(0f, m.rulerH), Offset(w, m.rulerH), 1f)
 
-    // ---- playhead ----
-    drawLine(Color.White, Offset(originX, 0f), Offset(originX, h), 2f)
-    val tri = Path()
-    tri.moveTo(originX - 8f, 0f)
-    tri.lineTo(originX + 8f, 0f)
-    tri.lineTo(originX, 12f)
-    tri.close()
-    drawPath(tri, Palette.Accent)
+    // ---- playhead (green line + top time badge as in reference image 1) ----
+    drawLine(Palette.AccentGreen, Offset(originX, 0f), Offset(originX, h), 2f)
+
+    // Green Playhead Time Badge (Keyflow / Alight Motion style)
+    val badgeW = 64f
+    val badgeH = m.rulerH - 4f
+    val badgeX = originX - badgeW / 2f
+    val badgeY = 2f
+    drawRoundRect(
+        color = Palette.AccentGreen,
+        topLeft = Offset(badgeX, badgeY),
+        size = Size(badgeW, badgeH),
+        cornerRadius = CornerRadius(4f, 4f)
+    )
+    val timeStr = formatTime(playhead, true)
+    val badgeTextPaint = android.graphics.Paint().apply {
+        color = android.graphics.Color.BLACK
+        textSize = 22f
+        isAntiAlias = true
+        textAlign = android.graphics.Paint.Align.CENTER
+        typeface = android.graphics.Typeface.DEFAULT_BOLD
+    }
+    drawContext.canvas.nativeCanvas.drawText(timeStr, originX, badgeY + badgeH * 0.72f, badgeTextPaint)
 }
 
 private fun DrawScope.drawClip(
@@ -541,19 +568,23 @@ private fun DrawScope.drawClip(
             drawContext.canvas.nativeCanvas.drawText(label.substring(0, n), max(xl, m.headerW) + 6f, top + hgt * 0.38f, labelPaint)
         }
 
-        // Keyframe (hanya klip terpilih).
-        if (selected) {
-            val seen = HashSet<Long>()
-            for (kt in c.keyframes.values) for (f in kt.frames) {
-                if (!seen.add(f.timeMs)) continue
-                val kx = xl + f.timeMs * pxPerMs
-                val ky = top + hgt * 0.78f
-                val r = 5.dp.toPx()
-                val p = Path()
-                p.moveTo(kx, ky - r); p.lineTo(kx + r, ky); p.lineTo(kx, ky + r); p.lineTo(kx - r, ky); p.close()
-                drawPath(p, Color(0xFFFFD54F))
-                drawPath(p, Color(0xFF3A2E00), style = Stroke(1f))
+        // Keyframe diamond markers (◆)
+        val seen = HashSet<Long>()
+        for (kt in c.keyframes.values) for (f in kt.frames) {
+            if (!seen.add(f.timeMs)) continue
+            val kx = xl + f.timeMs * pxPerMs
+            val ky = top + hgt * 0.72f
+            val r = if (selected) 6.dp.toPx() else 4.dp.toPx()
+            val p = Path().apply {
+                moveTo(kx, ky - r)
+                lineTo(kx + r, ky)
+                lineTo(kx, ky + r)
+                lineTo(kx - r, ky)
+                close()
             }
+            val kfColor = if (selected) Palette.Gold else Palette.Gold.copy(alpha = 0.75f)
+            drawPath(p, kfColor)
+            drawPath(p, Color(0xFF1E1700), style = Stroke(1.5f))
         }
     }
 

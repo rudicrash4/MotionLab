@@ -146,20 +146,31 @@ class VideoSourceManager(
         }
         rate = rate.coerceIn(SpeedLimits.MIN, SpeedLimits.MAX)
         if (abs(player.playbackParameters.speed - rate) > 0.015f * rate) player.setPlaybackSpeed(rate)
-        val vol = if (w.muted) 0f else (clip.volume * clip.fadeGain(local)).coerceIn(0f, 1f)
+        val vol = if (w.muted || clip.isMuted) 0f else (clip.volume * clip.fadeGain(local)).coerceIn(0f, 1f)
         if (abs(player.volume - vol) > 0.001f) player.volume = vol
 
         // 3) Sinkronisasi posisi.
         if (w.active) {
-            if (player.playWhenReady != playing) player.playWhenReady = playing
-            if (playing) {
+            if (clip.isReversed) {
+                // MediaCodec tidak mendukung reverse playback hardware native.
+                // Pada reversed video, sinkronisasikan frame dengan seek berkala mundur.
+                if (player.playWhenReady) player.playWhenReady = false
+                if (abs(expected - pos) > 20L && now - src.lastSeekAt >= 33L) {
+                    player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+                    player.seekTo(expected)
+                    src.lastSeekAt = now
+                }
+            } else {
+                if (player.playWhenReady != playing) player.playWhenReady = playing
+            }
+            if (playing && !clip.isReversed) {
                 if (abs(pos - expected) > DRIFT_PLAYING_MS && now - src.lastSeekAt > 500L) {
                     player.setSeekParameters(SeekParameters.CLOSEST_SYNC)
                     player.seekTo(expected)
                     src.lastSeekAt = now
                 }
                 src.exactDone = true
-            } else {
+            } else if (!playing) {
                 if (abs(expected - src.lastExpected) > 15L) {
                     src.lastChangeAt = now
                     src.exactDone = false

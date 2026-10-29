@@ -122,22 +122,21 @@ class TimelineController {
 
     // ---------------------------------------------------------------- tambah klip
 
-    /** Menambahkan klip; mencari track sejenis yang kosong pada rentang waktunya, jika tidak ada buat track baru. */
-    fun addClip(clip: Clip): String {
+    /** Menambahkan klip ke sistem layer terpadu. Setiap klip menempati layernya sendiri. */
+    fun addClip(clip: Clip, atIndex: Int = -1): String {
         val p = _project.value
-        val idx = p.tracks.indexOfFirst { it.type == clip.type && !it.locked && isFree(it, clip.startMs, clip.durationMs, null) }
-        val np = if (idx >= 0) {
-            p.copy(tracks = p.tracks.mapIndexed { i, t ->
-                if (i == idx) t.copy(clips = (t.clips + clip).sortedBy { it.startMs }) else t
-            })
-        } else {
-            val count = p.tracks.count { it.type == clip.type } + 1
-            val track = Track(type = clip.type, name = trackLabel(clip.type) + " " + count, clips = listOf(clip))
-            val list = p.tracks.toMutableList()
-            if (clip.type == TrackType.AUDIO) list.add(track) else list.add(0, track)
-            p.copy(tracks = list)
-        }
-        commit(np)
+        val count = p.tracks.count { it.type == clip.type } + 1
+        val layerName = clip.name.ifEmpty { trackLabel(clip.type) + " " + count }
+        val track = Track(
+            id = UUID.randomUUID().toString(),
+            type = clip.type,
+            name = layerName,
+            clips = listOf(clip.copy(name = layerName))
+        )
+        val list = p.tracks.toMutableList()
+        val insertIdx = if (atIndex in 0..list.size) atIndex else 0
+        list.add(insertIdx, track)
+        commit(p.copy(tracks = list))
         _selectedClipId.value = clip.id
         return clip.id
     }
@@ -168,11 +167,27 @@ class TimelineController {
             )
         )
 
-    fun addShape(kind: ShapeKind, atMs: Long): String =
+    fun addShape(kind: ShapeKind, atMs: Long = 0L): String =
         addClip(
             Clip(
                 type = TrackType.SHAPE, name = kind.name.lowercase().replaceFirstChar { it.uppercase() },
                 startMs = atMs, durationMs = IMAGE_DEFAULT_MS, shape = kind
+            )
+        )
+
+    fun addShape(kind: ShapeKind, color: Int, atMs: Long = 0L): String =
+        addClip(
+            Clip(
+                type = TrackType.SHAPE, name = kind.name.lowercase().replaceFirstChar { it.uppercase() },
+                startMs = atMs, durationMs = IMAGE_DEFAULT_MS, shape = kind, fillColor = color
+            )
+        )
+
+    fun addSolid(color: Int, atMs: Long = 0L): String =
+        addClip(
+            Clip(
+                type = TrackType.SHAPE, name = "Solid",
+                startMs = atMs, durationMs = IMAGE_DEFAULT_MS, shape = ShapeKind.RECT, fillColor = color
             )
         )
 
@@ -300,16 +315,24 @@ class TimelineController {
         val left = c.copy(durationMs = local, keyframes = leftKf, transitionOut = Transition())
         val right = c.copy(
             id = UUID.randomUUID().toString(),
+            name = c.name + " (2)",
             startMs = t,
             durationMs = c.endMs - t,
             sourceInMs = if (c.sourceDurationMs > 0L) c.sourceInMs + Math.round(c.speedMap.offset(local.toDouble())) else c.sourceInMs,
             keyframes = rightKf,
             transitionIn = Transition()
         )
-        val np = p.copy(tracks = p.tracks.mapIndexed { i, tr ->
-            if (i == ti) tr.copy(clips = (tr.clips.filter { it.id != clipId } + left + right).sortedBy { it.startMs }) else tr
-        })
-        commit(np)
+        val leftTrack = p.tracks[ti].copy(clips = listOf(left))
+        val rightTrack = Track(
+            id = UUID.randomUUID().toString(),
+            type = right.type,
+            name = right.name,
+            clips = listOf(right)
+        )
+        val list = p.tracks.toMutableList()
+        list[ti] = leftTrack
+        list.add(ti, rightTrack)
+        commit(p.copy(tracks = list))
         _selectedClipId.value = right.id
         return right.id
     }
@@ -328,9 +351,94 @@ class TimelineController {
     }
 
     fun duplicateClip(clipId: String) {
-        val c = _project.value.findClip(clipId) ?: return
-        addClip(c.copy(id = UUID.randomUUID().toString(), startMs = c.endMs))
+        val p = _project.value
+        val ti = p.trackIndexOfClip(clipId)
+        if (ti < 0) return
+        val c = p.findClip(clipId) ?: return
+        val copyClip = c.copy(
+            id = UUID.randomUUID().toString(),
+            name = c.name + " (Salin)",
+            startMs = c.endMs
+        )
+        val copyTrack = Track(
+            id = UUID.randomUUID().toString(),
+            type = copyClip.type,
+            name = copyClip.name,
+            clips = listOf(copyClip)
+        )
+        val list = p.tracks.toMutableList()
+        list.add(ti, copyTrack)
+        commit(p.copy(tracks = list))
+        _selectedClipId.value = copyClip.id
     }
+
+    // ---- Kontrol Volume & Mute Klip ----
+    fun setClipVolume(clipId: String, volume: Float) {
+        val p = _project.value
+        commit(mapClip(p, clipId) { it.copy(volume = volume.coerceIn(0f, 2f)) }, push = true, coalesce = "vol:$clipId")
+    }
+
+    fun toggleClipMuted(clipId: String) {
+        val p = _project.value
+        commit(mapClip(p, clipId) { it.copy(isMuted = !it.isMuted) })
+    }
+
+    // ---- Reverse Playback Video ----
+    fun toggleClipReversed(clipId: String) {
+        val p = _project.value
+        commit(mapClip(p, clipId) { it.copy(isReversed = !it.isReversed) })
+    }
+
+    // ---- Ubah Rasio Aspek Kanvas ----
+    fun changeAspectRatio(aspectW: Int, aspectH: Int) {
+        val p = _project.value
+        if (p.aspectW == aspectW && p.aspectH == aspectH) return
+        commit(p.copy(aspectW = aspectW, aspectH = aspectH, updatedAt = System.currentTimeMillis()))
+    }
+
+    // ---- Reorder Layer ----
+    fun reorderTrack(fromIndex: Int, toIndex: Int) {
+        val p = _project.value
+        if (fromIndex !in p.tracks.indices || toIndex !in p.tracks.indices || fromIndex == toIndex) return
+        val list = p.tracks.toMutableList()
+        val item = list.removeAt(fromIndex)
+        list.add(toIndex, item)
+        commit(p.copy(tracks = list))
+    }
+
+    // ---- Clipboard Layer & Keyframe ----
+    private var clipboardClip: Clip? = null
+    private var clipboardKeyframes: Map<String, KeyframeTrack>? = null
+
+    fun copyClip(clipId: String) {
+        val c = _project.value.findClip(clipId) ?: return
+        clipboardClip = c
+    }
+
+    fun pasteClip(atMs: Long): String? {
+        val c = clipboardClip ?: return null
+        val copyClip = c.copy(
+            id = UUID.randomUUID().toString(),
+            name = c.name + " (Tempel)",
+            startMs = atMs
+        )
+        return addClip(copyClip)
+    }
+
+    fun canPasteClip(): Boolean = clipboardClip != null
+
+    fun copyKeyframes(clipId: String) {
+        val c = _project.value.findClip(clipId) ?: return
+        clipboardKeyframes = c.keyframes
+    }
+
+    fun pasteKeyframes(clipId: String) {
+        val kfs = clipboardKeyframes ?: return
+        val p = _project.value
+        commit(mapClip(p, clipId) { it.copy(keyframes = kfs) })
+    }
+
+    fun canPasteKeyframes(): Boolean = clipboardKeyframes?.isNotEmpty() == true
 
     /** Keyframe setelah trim awal sebesar [delta] ms (delta>0 memotong, delta<0 memperpanjang). */
     private fun shiftKeyframesForTrim(c: Clip, delta: Long): Map<String, KeyframeTrack> {

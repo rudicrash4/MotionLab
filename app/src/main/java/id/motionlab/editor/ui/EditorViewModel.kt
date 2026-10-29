@@ -235,6 +235,49 @@ class EditorViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun createCustomProject(name: String, aspectW: Int, aspectH: Int, shortSide: Int, fps: Int, bgColor: Int) {
+        viewModelScope.launch {
+            val p = Project(
+                name = name,
+                aspectW = aspectW,
+                aspectH = aspectH,
+                shortSide = shortSide,
+                fps = fps,
+                bgColor = bgColor
+            )
+            switchTo(p, "Proyek \"$name\" berhasil dibuat.")
+        }
+    }
+
+    fun renameProject(id: String, newName: String) {
+        viewModelScope.launch {
+            if (id == controller.project.value.id) {
+                controller.updateProject { it.copy(name = newName) }
+            } else {
+                withContext(Dispatchers.IO) {
+                    val p = store.load(id)?.project
+                    if (p != null) {
+                        store.save(p.copy(name = newName, updatedAt = System.currentTimeMillis()))
+                    }
+                }
+            }
+            _projects.value = withContext(Dispatchers.IO) { store.list() }
+        }
+    }
+
+    fun updateProjectSettings(name: String, aspectW: Int, aspectH: Int, shortSide: Int, fps: Int) {
+        controller.updateProject {
+            it.copy(
+                name = name,
+                aspectW = aspectW,
+                aspectH = aspectH,
+                shortSide = shortSide,
+                fps = fps,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+    }
+
     // ---------------------------------------------------------------- font
 
     /** Mengimpor font TTF/OTF: disalin ke penyimpanan aplikasi agar tetap ada walau file asal dihapus. */

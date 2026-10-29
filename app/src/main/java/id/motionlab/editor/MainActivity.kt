@@ -7,9 +7,16 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import id.motionlab.editor.ui.EditorScreen
 import id.motionlab.editor.ui.EditorViewModel
 import id.motionlab.editor.ui.MotionLabTheme
+import id.motionlab.editor.ui.screens.HomeScreen
+
+enum class AppDestination { HOME, EDITOR }
 
 class MainActivity : ComponentActivity() {
     private val viewModel: EditorViewModel by viewModels()
@@ -22,13 +29,31 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             MotionLabTheme {
-                EditorScreen(viewModel)
+                var destination by remember { mutableStateOf(AppDestination.HOME) }
+
+                when (destination) {
+                    AppDestination.HOME -> {
+                        HomeScreen(
+                            vm = viewModel,
+                            onOpenEditor = { destination = AppDestination.EDITOR }
+                        )
+                    }
+                    AppDestination.EDITOR -> {
+                        EditorScreen(
+                            vm = viewModel,
+                            onNavigateBack = {
+                                viewModel.pause()
+                                viewModel.flushSave()
+                                destination = AppDestination.HOME
+                            }
+                        )
+                    }
+                }
             }
         }
     }
 
     override fun onStop() {
-        // Hentikan pemutaran saat aplikasi tidak terlihat (hemat baterai, lepas decoder).
         viewModel.pause()
         viewModel.flushSave()
         super.onStop()

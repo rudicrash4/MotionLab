@@ -423,7 +423,7 @@ object AudioMixer {
                     val cnt = (hi - lo).toInt()
                     it.stretcher.read(cnt, tmp)
                     val c = it.clip
-                    val vol = c.volume.coerceIn(0f, 4f)
+                    val vol = if (c.isMuted) 0f else c.volume.coerceIn(0f, 4f)
                     for (i in 0 until cnt) {
                         val localMs = (lo + i - it.startFrame) * 1000.0 / EXPORT_AUDIO_RATE
                         val g = vol * c.fadeGain(localMs)

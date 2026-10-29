@@ -86,7 +86,7 @@ class VideoFrameSource(
      */
     fun advanceTo(targetUs: Long): Boolean {
         val c = codec ?: return false
-        if (lastSeenPts != Long.MIN_VALUE && targetUs - lastSeenPts > 3_000_000L) seek(targetUs)
+        if (lastSeenPts != Long.MIN_VALUE && (targetUs - lastSeenPts > 3_000_000L || targetUs < lastSeenPts - tolUs)) seek(targetUs)
         var rendered = false
         while (true) {
             if (pendingIdx < 0) {

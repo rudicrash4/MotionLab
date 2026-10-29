@@ -3,7 +3,15 @@ package id.motionlab.editor.core
 import android.content.Context
 import java.io.File
 
-data class ProjectInfo(val id: String, val name: String, val updatedAt: Long, val durationMs: Long, val clipCount: Int)
+data class ProjectInfo(
+    val id: String,
+    val name: String,
+    val updatedAt: Long,
+    val durationMs: Long,
+    val clipCount: Int,
+    val aspectW: Int = 16,
+    val aspectH: Int = 9
+)
 
 /** Hasil pemuatan proyek: [recovered] true bila file utama rusak dan cadangan (.bak) dipakai. */
 data class LoadResult(val project: Project, val recovered: Boolean)
@@ -72,16 +80,16 @@ class ProjectStore(context: Context) {
         for (f in files) {
             try {
                 val p = ProjectSerializer.fromJson(f.readText())
-                out.add(ProjectInfo(p.id, p.name, p.updatedAt, p.durationMs, p.tracks.sumOf { it.clips.size }))
+                out.add(ProjectInfo(p.id, p.name, p.updatedAt, p.durationMs, p.tracks.sumOf { it.clips.size }, p.aspectW, p.aspectH))
             } catch (_: Exception) {
                 // Coba cadangan agar proyek tetap muncul di daftar.
                 val id = f.name.removeSuffix(".json")
                 val b = File(dir, f.name + ".bak")
                 try {
                     val p = ProjectSerializer.fromJson(b.readText())
-                    out.add(ProjectInfo(p.id, p.name + " (pulihkan)", p.updatedAt, p.durationMs, p.tracks.sumOf { it.clips.size }))
+                    out.add(ProjectInfo(p.id, p.name + " (pulihkan)", p.updatedAt, p.durationMs, p.tracks.sumOf { it.clips.size }, p.aspectW, p.aspectH))
                 } catch (_: Exception) {
-                    out.add(ProjectInfo(id, "Proyek rusak ($id)", f.lastModified(), 0L, 0))
+                    out.add(ProjectInfo(id, "Proyek rusak ($id)", f.lastModified(), 0L, 0, 16, 9))
                 }
             }
         }

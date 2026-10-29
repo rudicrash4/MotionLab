@@ -2,10 +2,16 @@ name: Build MotionLab APK
 
 on:
   workflow_dispatch:
+
   push:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
+
   pull_request:
-    branches: [ main, master ]
+    branches:
+      - main
+      - master
 
 permissions:
   contents: read
@@ -16,53 +22,173 @@ concurrency:
 
 jobs:
   build:
-    name: Build debug APK
+    name: Build MotionLab Debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 40
 
     steps:
+      # ==========================================
+      # 1. DOWNLOAD SOURCE CODE
+      # ==========================================
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Verify project root
+      # ==========================================
+      # 2. PERIKSA STRUKTUR PROYEK
+      # ==========================================
+      - name: Verify project structure
+        shell: bash
         run: |
-          test -f settings.gradle.kts || { echo "settings.gradle.kts tidak ada di root repo. Isi ZIP harus langsung di root."; ls -la; exit 1; }
-          test -f app/build.gradle.kts || { echo "app/build.gradle.kts tidak ada."; exit 1; }
+          set -e
 
+          echo "Memeriksa struktur proyek MotionLab..."
+
+          test -f settings.gradle.kts || {
+            echo "::error::settings.gradle.kts tidak ditemukan di root repository."
+            echo "Pastikan isi proyek ZIP berada langsung di root repository."
+            ls -la
+            exit 1
+          }
+
+          test -f build.gradle.kts || {
+            echo "::error::build.gradle.kts tidak ditemukan."
+            exit 1
+          }
+
+          test -f app/build.gradle.kts || {
+            echo "::error::app/build.gradle.kts tidak ditemukan."
+            exit 1
+          }
+
+          test -f gradle/libs.versions.toml || {
+            echo "::error::gradle/libs.versions.toml tidak ditemukan."
+            exit 1
+          }
+
+          test -f gradle/wrapper/gradle-wrapper.properties || {
+            echo "::error::gradle-wrapper.properties tidak ditemukan."
+            exit 1
+          }
+
+          test -f app/src/main/AndroidManifest.xml || {
+            echo "::error::AndroidManifest.xml tidak ditemukan."
+            exit 1
+          }
+
+          test -f app/src/main/res/xml/file_paths.xml || {
+            echo "::error::res/xml/file_paths.xml tidak ditemukan."
+            exit 1
+          }
+
+          echo "Struktur dasar proyek berhasil diperiksa."
+
+      # ==========================================
+      # 3. JAVA 17
+      # ==========================================
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # ==========================================
+      # 4. ANDROID SDK
+      # ==========================================
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
 
-      # Proyek tidak menyertakan Gradle Wrapper; Gradle 8.9 dipin di runner (cocok dengan AGP 8.7.x).
-      - name: Set up Gradle 8.9
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -e
+
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+      # ==========================================
+      # 5. GRADLE 9.3.1
+      # ==========================================
+      - name: Set up Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.9'
+          gradle-version: '9.3.1'
 
+      # ==========================================
+      # 6. PERIKSA TOOLCHAIN
+      # ==========================================
       - name: Verify toolchain
+        shell: bash
         run: |
           java -version
           gradle --version
+          sdkmanager --list_installed
 
-      - name: Build debug APK
-        run: gradle --no-daemon --stacktrace --console=plain :app:assembleDebug 2>&1 | tee build-log.txt
+      # ==========================================
+      # 7. SIAPKAN DEBUG KEYSTORE
+      # ==========================================
+      - name: Prepare debug keystore
         shell: bash
-
-      - name: Summarize errors
-        if: failure()
         run: |
-          echo "## Ringkasan error kompilasi" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          grep -E "^e: |error:|FAILED|What went wrong" -A2 build-log.txt | head -80 >> "$GITHUB_STEP_SUMMARY" || true
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          set -e
 
+          if [ ! -f debug.keystore ]; then
+            keytool -genkeypair \
+              -v \
+              -keystore debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+
+          echo "Debug keystore siap digunakan."
+
+      # ==========================================
+      # 8. BUILD DEBUG APK
+      # ==========================================
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -o pipefail
+
+          gradle \
+            --no-daemon \
+            --stacktrace \
+            --console=plain \
+            :app:assembleDebug \
+            2>&1 | tee build-log.txt
+
+      # ==========================================
+      # 9. RINGKASAN ERROR
+      # ==========================================
+      - name: Summarize build errors
+        if: failure()
+        shell: bash
+        run: |
+          {
+            echo "## Ringkasan error build MotionLab"
+            echo
+            echo '```text'
+
+            if [ -f build-log.txt ]; then
+              grep -E \
+                "^e: |error:|What went wrong|Execution failed|FAILED|Could not resolve|Could not find" \
+                -A 3 build-log.txt | head -100 || true
+            else
+              echo "Log build belum tersedia."
+            fi
+
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ==========================================
+      # 10. UPLOAD BUILD LOG
+      # ==========================================
       - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
@@ -72,7 +198,11 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # ==========================================
+      # 11. UPLOAD DEBUG APK
+      # ==========================================
       - name: Upload debug APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: MotionLab-debug-APK

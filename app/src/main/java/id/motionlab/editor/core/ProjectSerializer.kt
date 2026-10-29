@@ -20,6 +20,7 @@ object ProjectSerializer {
         root.put("aspectH", p.aspectH)
         root.put("shortSide", p.shortSide)
         root.put("fps", p.fps)
+        root.put("bgColor", p.bgColor)
         val tracks = JSONArray()
         for (t in p.tracks) {
             val jt = JSONObject()
@@ -50,6 +51,8 @@ object ProjectSerializer {
         o.put("srcIn", c.sourceInMs)
         o.put("srcDur", c.sourceDurationMs)
         o.put("volume", c.volume.toDouble())
+        o.put("muted", c.isMuted)
+        o.put("reversed", c.isReversed)
         o.put("text", c.text)
         o.put("textColor", c.textColor)
         o.put("textSize", c.textSize.toDouble())
@@ -130,6 +133,7 @@ object ProjectSerializer {
             aspectH = root.optInt("aspectH", 16),
             shortSide = root.optInt("shortSide", 1080),
             fps = root.optInt("fps", 30),
+            bgColor = root.optInt("bgColor", 0xFF000000.toInt()),
             tracks = tracks
         )
     }
@@ -185,6 +189,8 @@ object ProjectSerializer {
             sourceInMs = o.optLong("srcIn", 0L),
             sourceDurationMs = o.optLong("srcDur", 0L),
             volume = o.optDouble("volume", 1.0).toFloat(),
+            isMuted = o.optBoolean("muted", false),
+            isReversed = o.optBoolean("reversed", false),
             props = props,
             keyframes = kfs,
             text = o.optString("text", ""),

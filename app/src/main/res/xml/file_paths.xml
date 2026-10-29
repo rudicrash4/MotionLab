@@ -1,5 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<paths>
-    <external-files-path name="movies" path="Movies/" />
-    <external-files-path name="files" path="." />
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Internal files directory (Export fallback and local media) -->
+    <files-path
+        name="internal_files"
+        path="." />
+
+    <!-- Internal cache directory (Temporary export files) -->
+    <cache-path
+        name="internal_cache"
+        path="." />
+
+    <!-- External app-specific files directory (Exported videos) -->
+    <external-files-path
+        name="external_files"
+        path="." />
+
+    <!-- External app-specific cache directory -->
+    <external-cache-path
+        name="external_cache"
+        path="." />
 </paths>

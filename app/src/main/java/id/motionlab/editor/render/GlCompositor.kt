@@ -231,7 +231,12 @@ class GlCompositor(
 
     fun renderFrame(project: Project, tMs: Long, w: Int, h: Int) {
         GLES20.glViewport(0, 0, w, h)
-        GLES20.glClearColor(0f, 0f, 0f, 1f)
+        val bg = project.bgColor
+        val br = ((bg shr 16) and 0xFF) / 255f
+        val bgG = ((bg shr 8) and 0xFF) / 255f
+        val bb = (bg and 0xFF) / 255f
+        val ba = ((bg ushr 24) and 0xFF) / 255f
+        GLES20.glClearColor(br, bgG, bb, ba)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         if (progTex == null || progOes == null || w <= 0 || h <= 0) return
 

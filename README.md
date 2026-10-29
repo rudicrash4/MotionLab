@@ -1,26 +1,22 @@
-# MotionLab Android — 0.4.0
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
+</div>
 
-Editor video native Android (Kotlin, Jetpack Compose, Media3 + OpenGL ES 2.0, MediaCodec), dibangun via GitHub Actions.
+# Run and deploy your AI Studio app
 
-## Build
-Upload isi folder ini LANGSUNG ke root repository (settings.gradle.kts harus ada di root), buka tab Actions →
-"Build MotionLab APK" → unduh artifact `MotionLab-debug-APK`. Bila gagal, artifact `MotionLab-build-log` + ringkasan error di halaman run.
+This contains everything you need to run your app locally.
 
-## Status verifikasi (jujur)
-- Kode non-Compose (core, render/GlCompositor, export, track, EditorViewModel) sudah dikompilasi dengan kotlinc 2.0.21 + android.jar API 35 di lingkungan pengembangan: tanpa error.
-- Logika Speed Ramp / trim / split / preset diuji dengan skrip JVM (semua lulus).
-- UI Compose, VideoSourceManager (Media3) dan seluruh build Gradle/APK BELUM dikompilasi; tidak ada runtime test di perangkat.
+View your app in AI Studio: https://ai.studio/apps/d09dee7c-876f-43e1-a308-71118128124d
 
-## Fitur baru 0.4.0
-- Speed Ramp 0.1x–8x: kurva keyframe kecepatan, waktu sumber = integral kecepatan; titik tambah/hapus/seret, interpolasi Linear/Ease/Custom bezier; preset Montage, Slow Motion, Speed Up, Smooth Acceleration/Deceleration, Action, Custom. Trim/split/seek/durasi/ekspor mengikuti kurva; migrasi proyek lama → 1x.
-- Ekspor MP4 H.264 + AAC (720p/1080p/1440p/4K hanya bila didukung encoder perangkat; 24/25/30/60 fps; bitrate Rendah/Sedang/Tinggi), compositor yang sama dengan preview, progres, batal, hasil di Movies/MotionLab.
-- Audio: waveform asli, fade in/out, mute/solo track, time-stretch pitch-preserving (WSOLA) saat ekspor.
-- Teks: font TTF/OTF, weight, miring, rata, jarak huruf/baris, outline, bayangan, latar.
-- Efek: nyala/mati per efek, urutan warp, preset, salin/tempel antar klip.
-- Proyek: banyak proyek, duplikat, hapus (konfirmasi), cadangan .bak + pemulihan, peringatan media hilang, simpan otomatis.
-- Perbaikan: pemotongan keyframe kini mempertahankan bentuk easing.
+## Run Locally
 
-## Batasan yang diketahui
-- Ekspor berjalan di proses aplikasi (bukan foreground service): jangan tutup aplikasi saat ekspor.
-- Tracker tetap 2D template matching (tanpa perbaikan manual baru).
-- Rotasi video pada ekspor mengandalkan KEY_ROTATION decoder; belum diuji di perangkat.
+**Prerequisites:**  [Android Studio](https://developer.android.com/studio)
+
+
+1. Open Android Studio
+2. Select **Open** and choose the directory containing this project
+3. Allow Android Studio to fix any incompatibilities as it imports the project.
+4. Create a file named `.env` in the project directory and set `GEMINI_API_KEY` in that file to your Gemini API key (see `.env.example` for an example)
+5. Remove this line from the app's `build.gradle.kts` file: `signingConfig = signingConfigs.getByName("debugConfig")`
+6. Run the app on an emulator or physical device
+7. If you have already published your app in AI Studio, please [request upload key reset](https://support.google.com/googleplay/android-developer/answer/9842756#zippy=%2Crequest-an-upload-key-reset) in Google Play Console.
