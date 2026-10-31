@@ -20,6 +20,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
       - name: Unit tests (JVM + Robolectric)
         run: ./gradlew test --stacktrace
       - name: Upload test reports
@@ -38,6 +40,8 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
       - name: Assemble debug APK
         run: ./gradlew :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
@@ -55,10 +59,12 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
       - name: Build LGPL FFmpeg (arm64-v8a)
         run: |
           NDK_DIR=$(ls -d "$ANDROID_HOME"/ndk/* | sort -V | tail -1)
-          ANDROID_NDK_HOME="$NDK_DIR" scripts/build_ffmpeg_android.sh
+          ANDROID_NDK_HOME="$NDK_DIR" bash scripts/build_ffmpeg_android.sh
       - name: Assemble debug APK with FFmpeg
         run: ./gradlew :app:assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4
@@ -67,9 +73,10 @@ jobs:
           path: app/build/outputs/apk/debug/*.apk
 
   instrumented-tests:
-    # Real JNI + OpenGL ES tests on an emulator. Slow, so it does not block the other jobs.
+    # Real JNI + OpenGL ES tests on an emulator. This job runs independently of the others (no `needs`),
+    # and a failure here is a real failure: it makes the workflow run red. It is NOT marked continue-on-error.
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - name: Enable KVM
@@ -82,9 +89,19 @@ jobs:
           distribution: temurin
           java-version: 17
       - uses: gradle/actions/setup-gradle@v4
+      - name: Make Gradle wrapper executable
+        run: chmod +x gradlew
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           arch: x86_64
           target: google_apis
           script: ./gradlew :native:cpp-core:connectedDebugAndroidTest :engine:rendering:connectedDebugAndroidTest --stacktrace
+      - name: Upload instrumented test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-reports
+          path: |
+            **/build/reports/androidTests/
+            **/build/outputs/androidTest-results/
