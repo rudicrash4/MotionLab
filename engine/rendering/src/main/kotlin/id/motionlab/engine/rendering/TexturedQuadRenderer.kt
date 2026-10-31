@@ -10,11 +10,17 @@ import id.motionlab.core.common.MlException
 /** A 2D GL texture owned by the render thread's context. */
 class GlTexture internal constructor(val id: Int, val width: Int, val height: Int) {
     internal var deleted = false
+
+    /** Approximate GPU memory: RGBA8, no mipmaps. */
+    val sizeBytes: Long get() = width.toLong() * height * 4
 }
 
 /**
  * Draws textured quads (the building block of the compositor). Needs a current GL context for every call.
  * The quad fills the viewport and is then scaled / rotated / translated by [draw]'s arguments.
+ *
+ * Per-frame cost: no allocation (matrix scratch array and vertex buffer are reused; the vertices live in a VBO)
+ * and no glGetError unless [GlUtil.debugChecks] is on.
  */
 class TexturedQuadRenderer : AutoCloseable {
     private val program: Int
@@ -23,17 +29,17 @@ class TexturedQuadRenderer : AutoCloseable {
     private val mvpLoc: Int
     private val alphaLoc: Int
     private val samplerLoc: Int
+    private val vbo: Int
     private val textures = HashSet<GlTexture>()
+    private val mvp = FloatArray(16)
+    private val idScratch = IntArray(1)
+    private var abandoned = false
+    private var closed = false
 
-    private val vertices = GlUtil.floatBuffer(
-        floatArrayOf(
-            // x, y, u, v  (v flipped so a Bitmap's top row appears at the top)
-            -1f, -1f, 0f, 1f,
-            1f, -1f, 1f, 1f,
-            -1f, 1f, 0f, 0f,
-            1f, 1f, 1f, 0f,
-        ),
-    )
+    var liveTextureCount: Int = 0
+        private set
+    var liveTextureBytes: Long = 0
+        private set
 
     init {
         program = GlUtil.linkProgram(VERTEX, FRAGMENT)
@@ -46,14 +52,37 @@ class TexturedQuadRenderer : AutoCloseable {
             GLES20.glDeleteProgram(program)
             throw MlException(ErrorCode.GPU, "Shader locations missing")
         }
-        GlUtil.checkError("TexturedQuadRenderer.init")
+        // Vertex data uploaded once to a VBO instead of being copied from client memory on every draw.
+        val vertices = GlUtil.floatBuffer(
+            floatArrayOf(
+                // x, y, u, v  (v flipped so a Bitmap's top row appears at the top)
+                -1f, -1f, 0f, 1f,
+                1f, -1f, 1f, 1f,
+                -1f, 1f, 0f, 0f,
+                1f, 1f, 1f, 0f,
+            ),
+        )
+        GLES20.glGenBuffers(1, idScratch, 0)
+        vbo = idScratch[0]
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
+        GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, 16 * 4, vertices, GLES20.GL_STATIC_DRAW)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        try {
+            GlUtil.checkError("TexturedQuadRenderer.init")
+        } catch (e: MlException) {
+            GLES20.glDeleteProgram(program)
+            idScratch[0] = vbo
+            GLES20.glDeleteBuffers(1, idScratch, 0)
+            throw e
+        }
     }
 
     fun uploadBitmap(bitmap: Bitmap): GlTexture {
-        val ids = IntArray(1)
-        GLES20.glGenTextures(1, ids, 0)
-        if (ids[0] == 0) throw MlException(ErrorCode.GPU, "glGenTextures failed")
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
+        check(!closed && !abandoned) { "renderer is closed" }
+        GLES20.glGenTextures(1, idScratch, 0)
+        val id = idScratch[0]
+        if (id == 0) throw MlException(ErrorCode.GPU, "glGenTextures failed")
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
         GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
@@ -62,17 +91,28 @@ class TexturedQuadRenderer : AutoCloseable {
         try {
             GlUtil.checkError("uploadBitmap")
         } catch (e: MlException) {
-            GLES20.glDeleteTextures(1, ids, 0)
+            idScratch[0] = id
+            GLES20.glDeleteTextures(1, idScratch, 0)
             throw e
         }
-        return GlTexture(ids[0], bitmap.width, bitmap.height).also { textures += it }
+        val texture = GlTexture(id, bitmap.width, bitmap.height)
+        textures += texture
+        liveTextureCount++
+        liveTextureBytes += texture.sizeBytes
+        return texture
     }
 
     fun deleteTexture(texture: GlTexture) {
         if (texture.deleted) return
         texture.deleted = true
-        textures -= texture
-        GLES20.glDeleteTextures(1, intArrayOf(texture.id), 0)
+        if (textures.remove(texture)) {
+            liveTextureCount--
+            liveTextureBytes -= texture.sizeBytes
+        }
+        if (!abandoned) {
+            idScratch[0] = texture.id
+            GLES20.glDeleteTextures(1, idScratch, 0)
+        }
     }
 
     /**
@@ -89,8 +129,8 @@ class TexturedQuadRenderer : AutoCloseable {
         rotationDegrees: Float = 0f,
         alpha: Float = 1f,
     ) {
+        check(!closed && !abandoned) { "renderer is closed" }
         if (texture.deleted) throw MlException(ErrorCode.GPU, "Texture already deleted")
-        val mvp = FloatArray(16)
         Matrix.setIdentityM(mvp, 0)
         Matrix.translateM(mvp, 0, translateX, translateY, 0f)
         Matrix.rotateM(mvp, 0, rotationDegrees, 0f, 0f, 1f)
@@ -105,21 +145,36 @@ class TexturedQuadRenderer : AutoCloseable {
         GLES20.glUniformMatrix4fv(mvpLoc, 1, false, mvp, 0)
         GLES20.glUniform1f(alphaLoc, alpha.coerceIn(0f, 1f))
 
-        vertices.position(0)
-        GLES20.glVertexAttribPointer(positionLoc, 2, GLES20.GL_FLOAT, false, 16, vertices)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)
         GLES20.glEnableVertexAttribArray(positionLoc)
-        vertices.position(2)
-        GLES20.glVertexAttribPointer(texCoordLoc, 2, GLES20.GL_FLOAT, false, 16, vertices)
+        GLES20.glVertexAttribPointer(positionLoc, 2, GLES20.GL_FLOAT, false, 16, 0)
         GLES20.glEnableVertexAttribArray(texCoordLoc)
+        GLES20.glVertexAttribPointer(texCoordLoc, 2, GLES20.GL_FLOAT, false, 16, 8)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
-        GLES20.glDisableVertexAttribArray(positionLoc)
-        GLES20.glDisableVertexAttribArray(texCoordLoc)
-        GlUtil.checkError("draw")
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        if (GlUtil.debugChecks) GlUtil.checkError("draw")
     }
 
-    /** Deletes the program and every texture still alive. Call with the context current. */
+    /**
+     * Forget every GL object WITHOUT calling GL. Use after the context was lost: the objects no longer exist and
+     * calling glDelete* on stale names could delete unrelated objects in the new context.
+     */
+    fun abandon() {
+        abandoned = true
+        for (t in textures) t.deleted = true
+        textures.clear()
+        liveTextureCount = 0
+        liveTextureBytes = 0
+    }
+
+    /** Deletes the program, the VBO and every texture still alive. Call with the context current. */
     override fun close() {
+        if (closed) return
+        closed = true
+        if (abandoned) return
         for (t in textures.toList()) deleteTexture(t)
+        idScratch[0] = vbo
+        GLES20.glDeleteBuffers(1, idScratch, 0)
         GLES20.glDeleteProgram(program)
     }
 

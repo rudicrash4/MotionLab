@@ -8,6 +8,13 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
 object GlUtil {
+    /**
+     * glGetError after every draw call can stall the pipeline on some drivers, so per-frame checks are off by
+     * default. Initialisation and upload paths always check. Turn on while debugging a GL problem.
+     */
+    @Volatile
+    var debugChecks: Boolean = false
+
     fun checkError(where: String) {
         val err = GLES20.glGetError()
         if (err != GLES20.GL_NO_ERROR) throw MlException(ErrorCode.GPU, "GL error 0x${Integer.toHexString(err)} at $where")
@@ -66,6 +73,8 @@ data class GpuCapabilities(
     val renderer: String,
     val version: String,
     val maxTextureSize: Int,
+    /** True if the driver advertises GL_EXT_disjoint_timer_query. The Android SDK has no bindings for it, so it is not used. */
+    val hasDisjointTimerQuery: Boolean,
 ) {
     companion object {
         fun query(): GpuCapabilities {
@@ -76,6 +85,7 @@ data class GpuCapabilities(
                 renderer = GLES20.glGetString(GLES20.GL_RENDERER) ?: "",
                 version = GLES20.glGetString(GLES20.GL_VERSION) ?: "",
                 maxTextureSize = size[0],
+                hasDisjointTimerQuery = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("GL_EXT_disjoint_timer_query"),
             )
         }
     }

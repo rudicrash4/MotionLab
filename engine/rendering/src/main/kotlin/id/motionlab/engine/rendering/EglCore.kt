@@ -9,6 +9,20 @@ import android.opengl.EGLSurface
 import id.motionlab.core.common.ErrorCode
 import id.motionlab.core.common.MlException
 
+/** Outcome of presenting a frame. */
+enum class SwapResult {
+    OK,
+
+    /** No window surface is attached (nothing to present to). */
+    NO_SURFACE,
+
+    /** The window surface became invalid (e.g. the Android Surface was destroyed). Attach a new one. */
+    SURFACE_LOST,
+
+    /** The GL context was lost (driver reset / GPU hang). All GL objects are gone and must be recreated. */
+    CONTEXT_LOST,
+}
+
 /**
  * Owns one EGL display + context. All methods must be called from the thread that uses the context
  * (see [RenderThread]). Prefers OpenGL ES 3.0 and falls back to 2.0.
@@ -17,6 +31,7 @@ class EglCore {
     private var display: EGLDisplay = EGL14.EGL_NO_DISPLAY
     private var context: EGLContext = EGL14.EGL_NO_CONTEXT
     private var config: EGLConfig? = null
+    private var current: EGLSurface? = null
 
     var glesVersion: Int = 0
         private set
@@ -85,20 +100,34 @@ class EglCore {
         return s
     }
 
+    /** No-op when [surface] is already current: eglMakeCurrent is not free, and it used to run on every frame. */
     fun makeCurrent(surface: EGLSurface) {
+        if (current === surface) return
         if (!EGL14.eglMakeCurrent(display, surface, surface, context)) {
+            current = null
             throw MlException(ErrorCode.GPU, "eglMakeCurrent failed: ${errorString()}")
         }
+        current = surface
     }
 
     fun makeNothingCurrent() {
         EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+        current = null
     }
 
-    /** Returns false if the surface was lost (e.g. the Android Surface was destroyed). */
-    fun swapBuffers(surface: EGLSurface): Boolean = EGL14.eglSwapBuffers(display, surface)
+    /** Applies to the current draw surface: 1 = every vsync, 2 = every second vsync, ... */
+    fun setSwapInterval(interval: Int): Boolean = EGL14.eglSwapInterval(display, interval)
+
+    fun swapBuffers(surface: EGLSurface): SwapResult {
+        if (EGL14.eglSwapBuffers(display, surface)) return SwapResult.OK
+        return when (EGL14.eglGetError()) {
+            EGL14.EGL_CONTEXT_LOST -> SwapResult.CONTEXT_LOST
+            else -> SwapResult.SURFACE_LOST // EGL_BAD_SURFACE, EGL_BAD_NATIVE_WINDOW, ...
+        }
+    }
 
     fun destroySurface(surface: EGLSurface) {
+        if (current === surface) makeNothingCurrent()
         EGL14.eglDestroySurface(display, surface)
     }
 
@@ -112,6 +141,7 @@ class EglCore {
         display = EGL14.EGL_NO_DISPLAY
         context = EGL14.EGL_NO_CONTEXT
         config = null
+        current = null
     }
 
     private fun errorString(): String = "0x" + Integer.toHexString(EGL14.eglGetError())

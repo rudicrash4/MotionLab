@@ -96,7 +96,10 @@ jobs:
           api-level: 34
           arch: x86_64
           target: google_apis
-          script: ./gradlew :native:cpp-core:connectedDebugAndroidTest :engine:rendering:connectedDebugAndroidTest --stacktrace
+          # One line on purpose (the runner executes each line separately): the logcat lines the rendering tests write
+          # (tag MlRenderTest: measured frame statistics) are saved even when the tests fail, and the exit code is kept.
+          script: |
+            bash -c './gradlew :native:cpp-core:connectedDebugAndroidTest :engine:rendering:connectedDebugAndroidTest --stacktrace; s=$?; adb logcat -d -s MlRenderTest:I > render-logcat.txt; exit $s'
       - name: Upload instrumented test reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -105,3 +108,4 @@ jobs:
           path: |
             **/build/reports/androidTests/
             **/build/outputs/androidTest-results/
+            render-logcat.txt

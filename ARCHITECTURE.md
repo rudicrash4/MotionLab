@@ -16,7 +16,9 @@ engine/effects     Effect registry + validated parameters -> Media3 effects     
 engine/text        TypographyConfig, FontManager, TextRenderer (StaticLayout)           [Android]
 engine/media       Metadata backends (Android, FFmpeg), resolver, importer, capabilities [Android]
 engine/export      ExportPlanner (pure) + Media3Exporter (Transformer)                  [Android]
-engine/rendering   EGL core, GL utils, textured quad renderer, RenderThread             [Android]
+engine/rendering   EGL core, GL utils, textured quad renderer, texture cache, RenderThread,
+                   FrameLoop (vsync-paced, adaptive), frame statistics                      [Android]
+                   (audit + fixes: see RENDERING_AUDIT.md)
 native/cpp-core    JNI + C++ (allocation registry, optional FFmpeg probe)               [Android + NDK]
 ```
 

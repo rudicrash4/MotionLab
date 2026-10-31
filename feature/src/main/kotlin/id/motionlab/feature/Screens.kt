@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -33,6 +34,7 @@ import id.motionlab.engine.rendering.RenderThread
 import id.motionlab.nativecore.NativeCore
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -106,9 +108,21 @@ fun ProjectsScreen(services: AppServices) {
 
 @Composable
 fun RenderTestScreen() {
+    val viewHolder = remember { arrayOfNulls<RenderDemoView>(1) }
+    var diagnostics by remember { mutableStateOf("Waiting for the first frames...") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(500)
+            viewHolder[0]?.let { diagnostics = it.diagnosticsText() }
+        }
+    }
     Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("A textured quad rendered by RenderThread (EGL + GLES) onto a SurfaceView.")
-        AndroidView(factory = { RenderDemoView(it) }, modifier = Modifier.fillMaxWidth().weight(1f))
+        AndroidView(
+            factory = { RenderDemoView(it).also { v -> viewHolder[0] = v } },
+            modifier = Modifier.fillMaxWidth().weight(1f),
+        )
+        Text(diagnostics, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
     }
 }
 
