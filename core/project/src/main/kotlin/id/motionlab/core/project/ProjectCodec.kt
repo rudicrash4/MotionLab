@@ -4,6 +4,7 @@ import id.motionlab.core.common.ErrorCode
 import id.motionlab.core.common.MlException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.int
@@ -14,12 +15,27 @@ import kotlinx.serialization.json.jsonPrimitive
 class ProjectMigration(val from: Int, val transform: (JsonObject) -> JsonObject)
 
 /**
+ * Built-in schema migrations. They only ADD data and never remove or rewrite what an older file contains, so a project
+ * opened and saved by a newer build keeps everything it had.
+ *  - 1 -> 2: adds the layer hierarchy (`layers`), keyframe ids, clip constants / payload / motion paths / presets and
+ *    the track flags `layerId`, `visible`, `collapsed`. All of them have defaults, so version 1 data is valid as it is;
+ *    missing keyframe ids are generated when the timeline is loaded.
+ */
+object ProjectMigrations {
+    val V1_TO_V2 = ProjectMigration(from = 1) { root ->
+        if ("layers" in root) root else JsonObject(root + ("layers" to JsonArray(emptyList())))
+    }
+
+    val ALL: List<ProjectMigration> = listOf(V1_TO_V2)
+}
+
+/**
  * Reads and writes the project JSON. Unknown fields are ignored (forward compatible within a schema version);
  * documents written by a NEWER schema than this build understands are rejected instead of being silently
  * truncated, so a later save can never destroy data.
  */
 class ProjectCodec(
-    private val migrations: List<ProjectMigration> = emptyList(),
+    private val migrations: List<ProjectMigration> = ProjectMigrations.ALL,
     private val currentVersion: Int = CURRENT_SCHEMA_VERSION,
 ) {
     private val json = Json {

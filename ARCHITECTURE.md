@@ -41,3 +41,9 @@ Key decisions
 | Placeholders / planned | Custom GLSL effects, particles, graph editor UI, proxy media, baking, autosave service, Oboe audio engine, preview playback with CompositionPlayer |
 
 The 30-60 FPS preview target has **not** been achieved or measured.
+
+## Phase 2 additions
+
+`engine:timeline` (commands, history, session, layout, mapping to the project DTOs) and `engine:animation` (properties,
+keyframes, interpolation, motion path, presets, graph maths) stay pure Kotlin. `feature` hosts the Compose editor and
+depends on both plus `engine:rendering` and `engine:text`. Details: `docs/PHASE2_DESIGN.md`.

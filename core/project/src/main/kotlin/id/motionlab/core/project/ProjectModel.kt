@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
  * On-disk project format (DTOs). It is deliberately separate from the engine's runtime model so the file
  * format can be versioned and migrated without touching the engine. Mapping lives in engine:timeline.
  */
-const val CURRENT_SCHEMA_VERSION = 1
+const val CURRENT_SCHEMA_VERSION = 2
 
 @Serializable
 data class ProjectConfig(
@@ -46,7 +46,30 @@ data class KeyframeDto(
     val y1: Double = 0.0,
     val x2: Double = 1.0,
     val y2: Double = 1.0,
+    /** Stable keyframe id (schema 2). Empty in schema 1 files: the loader generates one. */
+    val id: String = "",
 )
+
+@Serializable
+data class PathPointDto(
+    val id: String,
+    val x: Double,
+    val y: Double,
+    val inDx: Double = 0.0,
+    val inDy: Double = 0.0,
+    val outDx: Double = 0.0,
+    val outDy: Double = 0.0,
+)
+
+@Serializable
+data class MotionPathDto(
+    val points: List<PathPointDto>,
+    val rotateAlongPath: Boolean = false,
+)
+
+/** Record of an animation preset that was applied (the keyframes themselves live in `properties`). */
+@Serializable
+data class PresetDto(val presetId: String, val startUs: Long, val durationUs: Long)
 
 @Serializable
 data class ClipDto(
@@ -56,6 +79,14 @@ data class ClipDto(
     val durationUs: Long,
     val sourceStartUs: Long = 0,
     val properties: Map<String, List<KeyframeDto>> = emptyMap(),
+    // ---- schema 2 ----
+    /** Fixed (non-animated) property values. */
+    val constants: Map<String, Double> = emptyMap(),
+    val sourceDurationUs: Long? = null,
+    /** Content of generated clips: text, color, shape, w, h ... */
+    val payload: Map<String, String> = emptyMap(),
+    val motionPath: MotionPathDto? = null,
+    val presets: List<PresetDto> = emptyList(),
 )
 
 @Serializable
@@ -66,6 +97,27 @@ data class TrackDto(
     val muted: Boolean = false,
     val locked: Boolean = false,
     val clips: List<ClipDto> = emptyList(),
+    // ---- schema 2 ----
+    val layerId: String? = null,
+    val visible: Boolean = true,
+    val collapsed: Boolean = false,
+)
+
+/** A transform-hierarchy node (layer / group / null object). Animated in timeline time. */
+@Serializable
+data class LayerDto(
+    val id: String,
+    val name: String,
+    /** CONTENT, GROUP or NULL. */
+    val type: String = "CONTENT",
+    val parentId: String? = null,
+    val properties: Map<String, List<KeyframeDto>> = emptyMap(),
+    val constants: Map<String, Double> = emptyMap(),
+    val motionPath: MotionPathDto? = null,
+    val presets: List<PresetDto> = emptyList(),
+    val visible: Boolean = true,
+    val locked: Boolean = false,
+    val collapsed: Boolean = false,
 )
 
 @Serializable
@@ -78,4 +130,6 @@ data class ProjectDocument(
     val config: ProjectConfig = ProjectConfig(),
     val assets: List<AssetRefDto> = emptyList(),
     val tracks: List<TrackDto> = emptyList(),
+    /** Schema 2: the layer hierarchy. */
+    val layers: List<LayerDto> = emptyList(),
 )

@@ -73,3 +73,35 @@ object BezierEasing {
 
     private const val EPSILON = 1e-7
 }
+
+/** The six interpolation modes the editor offers. Ease modes are stored as [Interpolation.Bezier] presets. */
+enum class InterpolationKind(val label: String) {
+    HOLD("Hold"),
+    LINEAR("Linear"),
+    EASE_IN("Ease In"),
+    EASE_OUT("Ease Out"),
+    EASE_IN_OUT("Ease In Out"),
+    BEZIER("Bezier"),
+    ;
+
+    /** Interpolation for this kind; [BEZIER] without parameters starts as a gentle S-curve that the user can edit. */
+    fun create(): Interpolation = when (this) {
+        HOLD -> Interpolation.Hold
+        LINEAR -> Interpolation.Linear
+        EASE_IN -> Easing.EASE_IN
+        EASE_OUT -> Easing.EASE_OUT
+        EASE_IN_OUT -> Easing.EASE_IN_OUT
+        BEZIER -> Interpolation.Bezier(0.25, 0.1, 0.25, 1.0)
+    }
+}
+
+fun Interpolation.kind(): InterpolationKind = when (this) {
+    Interpolation.Hold -> InterpolationKind.HOLD
+    Interpolation.Linear -> InterpolationKind.LINEAR
+    is Interpolation.Bezier -> when (this) {
+        Easing.EASE_IN -> InterpolationKind.EASE_IN
+        Easing.EASE_OUT -> InterpolationKind.EASE_OUT
+        Easing.EASE_IN_OUT -> InterpolationKind.EASE_IN_OUT
+        else -> InterpolationKind.BEZIER
+    }
+}

@@ -11,8 +11,15 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
+/**
+ * NATIVE graphics mode on purpose: Robolectric's default (LEGACY) mode shadows Paint/StaticLayout with stubs that do not
+ * measure or break text, so a wrapping test can never see more than one line there. With the real native text stack
+ * these tests validate the layout the app actually produces.
+ */
 @RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class TextTest {
     private val renderer = TextRenderer(FontManager())
@@ -32,12 +39,34 @@ class TextTest {
 
     @Test
     fun wrappingWidthIsHonouredAndMoreLinesAreTaller() {
-        val oneLine = renderer.render(TextObject("a", "word word word word", TypographyConfig(sizePx = 30f)))
-        val wrapped = renderer.render(
-            TextObject("b", "word word word word", TypographyConfig(sizePx = 30f), maxWidthPx = oneLine.width / 3),
-        )
+        val typo = TypographyConfig(sizePx = 30f)
+        val oneLine = renderer.render(TextObject("a", "word word word word", typo))
+        val wrapped = renderer.render(TextObject("b", "word word word word", typo, maxWidthPx = oneLine.width / 3))
         assertEquals(oneLine.width / 3, wrapped.width)
-        assertTrue(wrapped.height > oneLine.height)
+        // Guard the premise: without real text measurement both heights are the 1 px minimum and the next check is meaningless.
+        assertTrue("single line must have a real height, was ${oneLine.height}", oneLine.height >= 20)
+        assertTrue("wrapped ${wrapped.height} px must be taller than single line ${oneLine.height} px", wrapped.height > oneLine.height)
+    }
+
+    @Test
+    fun layoutHeightGrowsWithTheNumberOfLines() {
+        val typo = TypographyConfig(sizePx = 30f)
+        val one = renderer.render(TextObject("1", "line", typo)).height
+        val three = renderer.render(TextObject("3", "line\nline\nline", typo)).height
+        // Line height is constant, so 3 lines are about 3x one line (allow rounding of per-line metrics).
+        assertTrue("one=$one three=$three", three >= one * 3 - 3 && three <= one * 3 + 3)
+        // Wrapping into 2 narrow columns vs. an explicit 2-line text must agree.
+        val wide = renderer.render(TextObject("w", "aaaa bbbb", typo))
+        val narrow = renderer.render(TextObject("n", "aaaa bbbb", typo, maxWidthPx = wide.width / 2 + 1))
+        val explicit = renderer.render(TextObject("e", "aaaa\nbbbb", typo))
+        assertEquals(explicit.height, narrow.height)
+    }
+
+    @Test
+    fun lineSpacingMultiplierChangesHeight() {
+        val tight = renderer.render(TextObject("t", "a\nb", TypographyConfig(sizePx = 30f, lineSpacingMultiplier = 1f))).height
+        val loose = renderer.render(TextObject("l", "a\nb", TypographyConfig(sizePx = 30f, lineSpacingMultiplier = 2f))).height
+        assertTrue("tight=$tight loose=$loose", loose > tight)
     }
 
     @Test
@@ -74,7 +103,18 @@ class TextTest {
     }
 
     @Test
-    fun unknownFamilyFallsBackToADefaultTypeface() {
-        assertTrue(FontManager().resolve("no-such-family", bold = true, italic = false) != null)
+    fun unknownFamilyFallsBackToTheDefaultFamilyAndKeepsTheRequestedStyle() {
+        val fm = FontManager()
+        val bold = fm.resolve("no-such-family", bold = true, italic = false)
+        assertTrue("bold request must keep the bold style", bold.isBold)
+        assertTrue(!bold.isItalic)
+        val italic = fm.resolve("no-such-family", bold = false, italic = true)
+        assertTrue(italic.isItalic && !italic.isBold)
+        // Fallback proof: text in an unknown family is laid out exactly like the platform default family.
+        val typo = TypographyConfig(sizePx = 40f)
+        val unknown = renderer.render(TextObject("u", "Fallback", typo.copy(fontFamily = "no-such-family")))
+        val default = renderer.render(TextObject("d", "Fallback", typo.copy(fontFamily = "sans-serif")))
+        assertEquals(default.width, unknown.width)
+        assertEquals(default.height, unknown.height)
     }
 }

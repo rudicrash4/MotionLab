@@ -93,4 +93,26 @@ class ExportPlannerTest {
             }
         }
     }
+
+    @Test
+    fun shapeAndObjectTracksAreSkippedWithAWarningInsteadOfFailing() {
+        val tl = Timeline()
+            .addTrack(Track("s", "Shapes", TrackKind.SHAPE))
+            .addTrack(Track("o", "Objects", TrackKind.OBJECT))
+            .addTrack(Track("v", "V", TrackKind.VIDEO))
+            .addClip("s", MediaClip("s1", 0, 1_000)) // generated content has no asset
+            .addClip("o", MediaClip("o1", 0, 1_000))
+            .addClip("v", MediaClip("v1", 0, 1_000, "v"))
+        val r = plan(tl)
+        assertEquals(listOf("v"), r.plan.sequences.map { it.trackId })
+        assertTrue(r.warnings.any { it.contains("Shapes") } && r.warnings.any { it.contains("Objects") })
+    }
+
+    @Test
+    fun motionPathAndLayerTransformsAlsoProduceTheAnimationWarning() {
+        val path = id.motionlab.engine.animation.MotionPath.smoothThrough(listOf(0.0 to 0.0, 10.0 to 10.0))
+        val tl = Timeline().addTrack(Track("v", "V", TrackKind.VIDEO))
+            .addClip("v", MediaClip("c", 0, 1_000, "v", motionPath = path))
+        assertTrue(plan(tl).warnings.any { it.contains("not applied") })
+    }
 }

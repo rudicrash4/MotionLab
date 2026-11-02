@@ -91,6 +91,43 @@ class ProjectCodecTest {
     }
 
     @Test
+    fun schemaOneFileIsUpgradedWithoutLosingData() {
+        // Exactly what a Phase 1 build wrote: no layers, no keyframe ids, no track flags.
+        val v1 = """
+            {"schemaVersion":1,"id":"p","name":"Old","createdAtMs":1,"modifiedAtMs":2,
+             "config":{"width":1280,"height":720,"frameRateNumerator":30,"frameRateDenominator":1,"durationUs":1000000},
+             "assets":[{"id":"a1","uri":"content://m/1","kind":"VIDEO"}],
+             "tracks":[{"id":"t1","name":"V","kind":"VIDEO","muted":true,"clips":[
+               {"id":"c1","assetId":"a1","startUs":0,"durationUs":1000000,"sourceStartUs":5,
+                "properties":{"opacity":[{"timeUs":0,"value":0.0,"interpolation":"linear"}]}}]}]}
+        """.trimIndent()
+        val doc = ProjectCodec().decode(v1)
+        assertEquals(CURRENT_SCHEMA_VERSION, doc.schemaVersion)
+        assertTrue(doc.layers.isEmpty())
+        val track = doc.tracks.single()
+        assertTrue(track.muted && track.visible && track.layerId == null)
+        assertEquals(5L, track.clips.single().sourceStartUs)
+        assertEquals(1, track.clips.single().properties.getValue("opacity").size)
+        assertEquals("a1", doc.assets.single().id)
+    }
+
+    @Test
+    fun schemaTwoFieldsRoundTrip() {
+        val doc = sample().copy(
+            layers = listOf(
+                LayerDto(
+                    "g", "Group", "GROUP", properties = mapOf("transform.x" to listOf(KeyframeDto(0, 1.0, id = "kf-1"))),
+                    constants = mapOf("opacity" to 0.5),
+                    motionPath = MotionPathDto(listOf(PathPointDto("p0", 0.0, 0.0), PathPointDto("p1", 5.0, 5.0, outDx = 1.0)), true),
+                    presets = listOf(PresetDto("fade_in", 0, 500_000)),
+                ),
+            ),
+            tracks = sample().tracks.map { it.copy(layerId = "g", visible = false, collapsed = true) },
+        )
+        assertEquals(doc, ProjectCodec().decode(ProjectCodec().encode(doc)))
+    }
+
+    @Test
     fun migrationsRunInOrder() {
         // Pretend schema 1 is the current one and version-0 files used "title" instead of "name".
         val rename = ProjectMigration(0) { obj ->

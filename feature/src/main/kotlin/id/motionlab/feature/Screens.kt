@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -41,9 +42,17 @@ import kotlinx.coroutines.withContext
 @Composable
 fun MotionLabRoot(services: AppServices) {
     var tab by remember { mutableStateOf(0) }
+    var openProjectId by remember { mutableStateOf<String?>(null) }
     val titles = listOf("Projects", "Render test", "Diagnostics")
     MaterialTheme {
         Scaffold { padding ->
+            val editing = openProjectId
+            if (editing != null) {
+                Column(Modifier.padding(padding).fillMaxSize()) {
+                    EditorScreen(services, editing) { openProjectId = null }
+                }
+                return@Scaffold
+            }
             Column(Modifier.padding(padding).fillMaxSize()) {
                 TabRow(selectedTabIndex = tab) {
                     titles.forEachIndexed { i, title ->
@@ -51,7 +60,7 @@ fun MotionLabRoot(services: AppServices) {
                     }
                 }
                 when (tab) {
-                    0 -> ProjectsScreen(services)
+                    0 -> ProjectsScreen(services, onOpen = { openProjectId = it })
                     1 -> RenderTestScreen()
                     else -> DiagnosticsScreen(services)
                 }
@@ -61,7 +70,7 @@ fun MotionLabRoot(services: AppServices) {
 }
 
 @Composable
-fun ProjectsScreen(services: AppServices) {
+fun ProjectsScreen(services: AppServices, onOpen: (String) -> Unit = {}) {
     val repository = remember(services) { ProjectRepository(services.database.projectDao(), services.projectsDir) }
     val projects by remember(services) { services.database.projectDao().observeAll() }
         .collectAsStateWithLifecycle(initialValue = emptyList())
@@ -99,7 +108,10 @@ fun ProjectsScreen(services: AppServices) {
                         Text(p.name, style = MaterialTheme.typography.titleMedium)
                         Text("${p.width}x${p.height} @ ${p.frameRateNumerator}/${p.frameRateDenominator} fps")
                     }
-                    TextButton(onClick = { scope.launch(Dispatchers.IO) { repository.delete(p.id) } }) { Text("Delete") }
+                    Row {
+                        TextButton(onClick = { onOpen(p.id) }, modifier = Modifier.testTag("open-${p.id}")) { Text("Open") }
+                        TextButton(onClick = { scope.launch(Dispatchers.IO) { repository.delete(p.id) } }) { Text("Delete") }
+                    }
                 }
             }
         }

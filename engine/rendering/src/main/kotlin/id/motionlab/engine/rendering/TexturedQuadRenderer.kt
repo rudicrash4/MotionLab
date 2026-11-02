@@ -130,11 +130,22 @@ class TexturedQuadRenderer : AutoCloseable {
         alpha: Float = 1f,
     ) {
         check(!closed && !abandoned) { "renderer is closed" }
-        if (texture.deleted) throw MlException(ErrorCode.GPU, "Texture already deleted")
         Matrix.setIdentityM(mvp, 0)
         Matrix.translateM(mvp, 0, translateX, translateY, 0f)
         Matrix.rotateM(mvp, 0, rotationDegrees, 0f, 0f, 1f)
         Matrix.scaleM(mvp, 0, scaleX, scaleY, 1f)
+        drawMatrix(texture, mvp, alpha)
+    }
+
+    /**
+     * Draws the quad with a complete column-major 4x4 matrix (16 floats) that maps the unit quad (-1..1) to clip
+     * space. Needed for transforms [draw] cannot express (skew, anchor points, parent hierarchies). Same cost and
+     * state handling as [draw]; [draw] itself is unchanged in behaviour.
+     */
+    fun drawMatrix(texture: GlTexture, matrix: FloatArray, alpha: Float = 1f) {
+        check(!closed && !abandoned) { "renderer is closed" }
+        require(matrix.size >= 16) { "matrix needs 16 floats" }
+        if (texture.deleted) throw MlException(ErrorCode.GPU, "Texture already deleted")
 
         GLES20.glUseProgram(program)
         GLES20.glEnable(GLES20.GL_BLEND)
@@ -142,7 +153,7 @@ class TexturedQuadRenderer : AutoCloseable {
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture.id)
         GLES20.glUniform1i(samplerLoc, 0)
-        GLES20.glUniformMatrix4fv(mvpLoc, 1, false, mvp, 0)
+        GLES20.glUniformMatrix4fv(mvpLoc, 1, false, matrix, 0)
         GLES20.glUniform1f(alphaLoc, alpha.coerceIn(0f, 1f))
 
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo)

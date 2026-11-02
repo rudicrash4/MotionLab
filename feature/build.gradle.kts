@@ -10,6 +10,7 @@ android {
 
     defaultConfig {
         minSdk = 23
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures {
         compose = true
@@ -31,6 +32,8 @@ dependencies {
     api(project(":core:task"))
     api(project(":core:resource"))
     api(project(":engine:timeline"))
+    api(project(":engine:animation"))
+    implementation(project(":engine:text"))
     api(project(":engine:media"))
     api(project(":engine:rendering"))
     api(project(":native:cpp-core"))
@@ -43,4 +46,13 @@ dependencies {
     implementation(libs.androidx.compose.foundation)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.lifecycle.runtime.compose)
+}
+
+dependencies {
+    androidTestImplementation(platform(libs.androidx.compose.bom))
+    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    debugImplementation(platform(libs.androidx.compose.bom))
+    debugImplementation(libs.androidx.compose.ui.test.manifest)
 }

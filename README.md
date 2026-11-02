@@ -8,3 +8,9 @@ Room, C++/JNI, OpenGL ES rendering. See `INTEGRATION_REPORT.md` for which open-s
 **Read first:** this phase was authored in a sandbox with no Android SDK and no access to Maven/Google repositories.
 The pure-Kotlin modules and the C++ code were compiled and tested there; the Android modules were written but have
 never been built by Gradle. Run the GitHub Actions workflow and send back any build log; expect a first round of fixes.
+
+
+## Phase 2
+
+Timeline engine, animation engine (keyframes, graph editor, motion paths, presets, hierarchy) and the Compose editor.
+See `docs/PHASE2_DESIGN.md` (design and limits) and `docs/TESTING_REPORT.md` (what ran and what did not).

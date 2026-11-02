@@ -30,10 +30,14 @@ data class PlannerAsset(val uri: String, val isImage: Boolean = false)
  * Turns the runtime [Timeline] into a flat, Media3-independent plan: per track, clips in order with explicit
  * gaps between them. Kept free of Android types so it can be unit-tested on the JVM.
  *
- * Phase 1 limits (reported, never silently ignored): TEXT/OVERLAY tracks are not exported yet, and clip
- * transform/opacity animation is not applied to the exported video yet.
+ * Known limits (reported as warnings, never silently ignored): generated-content tracks (TEXT, OVERLAY, SHAPE,
+ * OBJECT) are not exported yet; clip keyframes, motion paths and layer transforms are not applied to the exported
+ * video yet. The animation maths itself is shared: `SceneEvaluator` gives the transform of every clip at any
+ * timeline time and is what a frame-by-frame exporter must call, but that exporter does not exist yet.
  */
 object ExportPlanner {
+    private val GENERATED_KINDS = setOf(TrackKind.TEXT, TrackKind.OVERLAY, TrackKind.SHAPE, TrackKind.OBJECT)
+
     class Result(val plan: ExportPlan, val warnings: List<String>)
 
     fun plan(timeline: Timeline, assets: (String) -> PlannerAsset?): Result {
@@ -41,7 +45,7 @@ object ExportPlanner {
         val sequences = ArrayList<PlanSequence>()
         for (track in timeline.tracks) {
             if (track.muted) continue
-            if (track.kind == TrackKind.TEXT || track.kind == TrackKind.OVERLAY) {
+            if (track.kind in GENERATED_KINDS) {
                 if (track.clips.isNotEmpty()) warnings += "Track '${track.name}' (${track.kind}) is not exported yet"
                 continue
             }
@@ -54,7 +58,7 @@ object ExportPlanner {
                     ?: throw MlException(ErrorCode.NOT_FOUND, "Clip ${clip.id} references unknown asset $assetId")
                 if (clip.startUs > cursor) segments += PlanSegment(null, null, 0, clip.startUs - cursor)
                 segments += PlanSegment(clip.id, asset.uri, clip.sourceStartUs, clip.durationUs, asset.isImage)
-                if (clip.properties.tracks.isNotEmpty()) {
+                if (clip.properties.tracks.isNotEmpty() || clip.motionPath != null || track.layerId != null) {
                     warnings += "Clip ${clip.id}: keyframe animation is not applied to the export yet"
                 }
                 cursor = clip.endUs

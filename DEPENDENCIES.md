@@ -22,3 +22,17 @@ Versions live in `gradle/libs.versions.toml`. Verification status:
 SDK levels: `minSdk 23`, `compileSdk 36`, `targetSdk 36` (Media3 1.11.1 and Room 2.8 both require minSdk 23).
 
 Deliberately **not** included: FFmpegKit (retired), Oboe (deferred), Lottie (deferred), Hilt/Koin (a 60-line container is enough for Phase 1), android-gpuimage-plus (overlaps Media3 effects).
+
+## Phase 2 additions
+
+| Dependency | Scope | License | Why |
+|---|---|---|---|
+| `androidx.compose.ui:ui-test-junit4` (BOM-managed) | `androidTestImplementation` of `:feature` | Apache-2.0 | Compose UI instrumented tests |
+| `androidx.compose.ui:ui-test-manifest` (BOM-managed) | `debugImplementation` of `:feature` | Apache-2.0 | test activity declaration |
+| `:engine:text`, `:engine:animation` | module deps of `:feature` | project | text tiles in the preview; animation API |
+
+No new **runtime** third-party library. Timeline, animation, keyframes, bezier/graph maths, motion path, history and hit-testing
+are written in-repo (pure Kotlin, about 3262 lines). Open-source-first note: I did **not** run a fresh survey of third-party
+timeline/animation libraries for this phase; the choice to write them in-repo rests on (a) Android has no maintained
+Compose timeline-editor library whose data model fits a command/undo design, (b) Phase 1 already ruled out Lottie
+(deferred) and FFmpegKit (retired). That reasoning is mine and unverified against current Maven Central.
