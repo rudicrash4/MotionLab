@@ -22,6 +22,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -134,8 +135,8 @@ private fun GraphCanvas(c: EditorController, owner: AnimationOwner, prop: String
     val paint = remember(density) { android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { textSize = with(density) { 10.dp.toPx() } } }
     val s = c.session
     // Latest values for the gesture handler (it is keyed on stable objects and must not capture stale ones).
-    val latestWindow by rememberUpdatedStateCompat(window)
-    val latestSpeed by rememberUpdatedStateCompat(speedMode)
+    val latestWindow by rememberUpdatedState(window)
+    val latestSpeed by rememberUpdatedState(speedMode)
 
     Canvas(
         modifier.testTag("graph-canvas").pointerInput(owner, prop) {
@@ -230,7 +231,7 @@ private fun GraphCanvas(c: EditorController, owner: AnimationOwner, prop: String
                         }
                         break
                     }
-                    val d = ch.positionChange()
+                    val d = ch.position - ch.previousPosition
                     total += d
                     if (!started && total.getDistance() > slop) {
                         started = true
@@ -283,7 +284,8 @@ private fun GraphCanvas(c: EditorController, owner: AnimationOwner, prop: String
                     }
                 }
                 if (started) s.endGesture()
-            },
+            }
+        },
     ) {
         val w = size.width
         val h = size.height
@@ -361,6 +363,3 @@ private fun niceStep(raw: Double): Double {
     val n = if (f < 1.5) 1.0 else if (f < 3.5) 2.0 else if (f < 7.5) 5.0 else 10.0
     return n * pow
 }
-
-@Composable
-private fun <T> rememberUpdatedStateCompat(v: T): androidx.compose.runtime.State<T> = androidx.compose.runtime.rememberUpdatedState(v)

@@ -346,7 +346,7 @@ private fun ClipCanvas(c: EditorController, contentHeight: androidx.compose.ui.u
                             snapGuideUs = null
                             break
                         }
-                        val d = ch.positionChange()
+                        val d: Offset = ch.position - ch.previousPosition
                         total += d
                         if (mode == Mode.PENDING && total.getDistance() > slop) {
                             mode = when {

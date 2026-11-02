@@ -107,22 +107,25 @@ fun EditorLayout(controller: EditorController, projectName: String, onClose: () 
     Column(Modifier.fillMaxSize().testTag("editor-root")) {
         TopBar(controller, projectName, onClose)
         BoxWithConstraints(Modifier.fillMaxSize()) {
+            // BoxWithConstraintsScope is a layout-scope-marked receiver: inside Row/Column lambdas its members are NOT
+            // reachable implicitly, so read the constraints once into plain values.
+            val availableHeight = maxHeight
             val wide = maxWidth >= 720.dp
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.weight(1.3f).fillMaxHeight()) {
                         Preview(controller, Modifier.weight(1f).fillMaxWidth())
                         Toolbar(controller)
-                        Box(Modifier.height(maxHeight * 0.5f)) { TimelinePanel(controller) }
+                        Box(Modifier.height(availableHeight * 0.5f)) { TimelinePanel(controller) }
                     }
                     PanelTabs(controller, Modifier.weight(1f).fillMaxHeight())
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    Preview(controller, Modifier.height(maxHeight * 0.27f).fillMaxWidth())
+                    Preview(controller, Modifier.height(availableHeight * 0.27f).fillMaxWidth())
                     Toolbar(controller)
                     Box(Modifier.weight(1f)) { TimelinePanel(controller) }
-                    PanelTabs(controller, Modifier.height(maxHeight * 0.36f).fillMaxWidth())
+                    PanelTabs(controller, Modifier.height(availableHeight * 0.36f).fillMaxWidth())
                 }
             }
         }
