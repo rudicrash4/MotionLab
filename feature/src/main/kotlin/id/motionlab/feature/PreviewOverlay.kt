@@ -115,6 +115,7 @@ fun PreviewOverlay(c: EditorController, modifier: Modifier = Modifier) {
     ) {
         @Suppress("UNUSED_VARIABLE") val t = c.timeline // redraw on previewed/committed edits
         @Suppress("UNUSED_VARIABLE") val p = c.playheadUs
+        @Suppress("UNUSED_VARIABLE") val sv = c.settingsVersion // grid toggle
         val sel = c.selection
         val cw = s.canvasWidth.toDouble(); val chh = s.canvasHeight.toDouble()
         val k = (size.width / cw).toFloat()

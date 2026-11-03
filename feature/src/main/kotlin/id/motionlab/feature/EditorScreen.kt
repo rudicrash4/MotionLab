@@ -280,8 +280,10 @@ private fun TimelineToolbar(c: EditorController) {
         Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
             IconBtn("⋯", "More timeline actions", "tb-more") { more = true }
             DropdownMenu(expanded = more, onDismissRequest = { more = false }) {
-                fun item(label: String, tag: String, action: () -> Unit) =
+                @Composable
+                fun item(label: String, tag: String, action: () -> Unit) {
                     DropdownMenuItem(text = { Text(label) }, modifier = Modifier.testTag(tag), onClick = { more = false; action() })
+                }
                 item("Duplicate", "tb-duplicate") { c.run { s.duplicateSelection() } }
                 item("Copy", "tb-copy") { c.run { s.copySelection() } }
                 item("Paste", "tb-paste") { c.run { s.paste(keyframeOwner = owner) } }
