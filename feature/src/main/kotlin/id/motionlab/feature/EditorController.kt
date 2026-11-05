@@ -102,6 +102,7 @@ class EditorController(
     private var autosaveJob: Job? = null
     private var dirty = false
     private var lastCommitted: Timeline = session.committedState.timeline
+    private var lastAssetsVersion: Int = session.assetsVersion
 
     private val listener: (EditorState) -> Unit = { st ->
         if (st.timeline !== timeline) timeline = st.timeline
@@ -115,8 +116,10 @@ class EditorController(
         // A transient preview is not a project change; only a committed, different timeline needs saving.
         if (!session.inTransaction) {
             val committed = session.committedState.timeline
-            if (committed !== lastCommitted) {
+            val assetsChanged = session.assetsVersion != lastAssetsVersion
+            if (committed !== lastCommitted || assetsChanged) {
                 lastCommitted = committed
+                lastAssetsVersion = session.assetsVersion
                 dirty = true
                 saveStatus = "Unsaved changes"
                 scheduleAutosave()

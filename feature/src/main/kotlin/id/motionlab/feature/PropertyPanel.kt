@@ -60,7 +60,7 @@ internal fun formatValue(v: Double, step: Double): String {
 
 /** Edits the selected clip/layer: content, every registered property with its stopwatch, keyframes and presets. */
 @Composable
-fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier) {
+fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier, fontFamilies: List<String> = emptyList()) {
     val s = c.session
     val owner = c.ownerOfSelection()?.takeIf { s.exists(it) }
     @Suppress("UNUSED_VARIABLE") val editVersion = c.timeline // observable read: recompose on committed/previewed edits
@@ -71,7 +71,10 @@ fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier) {
             return@Column
         }
         Text(s.displayName(owner), style = MaterialTheme.typography.titleSmall)
-        if (owner is AnimationOwner.ClipOwner) ContentSection(c, owner.clipId)
+        if (owner is AnimationOwner.ClipOwner) {
+            ContentSection(c, owner.clipId, fontFamilies)
+            LookSection(c, owner.clipId)
+        }
         PresetsMenu(c, owner)
         val localT = s.localTime(owner)
         val anim = s.anim(owner)
@@ -108,7 +111,7 @@ private fun PresetsMenu(c: EditorController, owner: AnimationOwner) {
 }
 
 @Composable
-private fun ContentSection(c: EditorController, clipId: String) {
+private fun ContentSection(c: EditorController, clipId: String, fontFamilies: List<String>) {
     val found = c.timeline.findClip(clipId) ?: return
     val (track, clip) = found
     if (track.kind != TrackKind.TEXT && track.kind != TrackKind.SHAPE) return
@@ -119,6 +122,21 @@ private fun ContentSection(c: EditorController, clipId: String) {
             value = text, onValueChange = { text = it; set("text", it) }, label = { Text("Text") },
             modifier = Modifier.fillMaxWidth().testTag("content-text"),
         )
+    }
+    if (track.kind == TrackKind.TEXT) {
+        var fontMenu by remember { mutableStateOf(false) }
+        Box {
+            OutlinedButton(onClick = { fontMenu = true }, modifier = Modifier.testTag("font-button")) { Text("Font: ${clip.payload["font"] ?: "System default"} ▾") }
+            DropdownMenu(expanded = fontMenu, onDismissRequest = { fontMenu = false }) {
+                DropdownMenuItem(text = { Text("System default") }, modifier = Modifier.testTag("font-default"), onClick = {
+                    fontMenu = false
+                    c.run { c.session.execute(SetClipPayload(clipId, clip.payload - "font")) }
+                })
+                fontFamilies.forEach { f ->
+                    DropdownMenuItem(text = { Text(f) }, modifier = Modifier.testTag("font-$f"), onClick = { fontMenu = false; set("font", f) })
+                }
+            }
+        }
     }
     var color by remember(clipId, clip.payload["color"]) { mutableStateOf(clip.payload["color"] ?: "") }
     OutlinedTextField(

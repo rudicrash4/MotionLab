@@ -39,3 +39,6 @@ Compose timeline-editor library whose data model fits a command/undo design, (b)
 
 ## Phase 2.1
 No new dependencies. Only existing Compose/Material3 APIs were used (FlowRow not used; `ExperimentalLayoutApi` opt-in is harmless).
+
+## Phase 3
+Added to `:feature` (already in the version catalog): `androidx.activity:activity-compose` 1.9.0 (pickers), `androidx.media3:media3-exoplayer` and `media3-ui` 1.11.1 (media preview). All Apache-2.0. `:engine:media` now depends on `:core:project` (project module, no new library). No other dependencies; no new Android permissions.

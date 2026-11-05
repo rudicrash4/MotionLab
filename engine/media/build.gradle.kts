@@ -26,6 +26,7 @@ kotlin {
 dependencies {
     api(project(":core:common"))
     api(project(":core:resource"))
+    api(project(":core:project"))
     implementation(project(":native:cpp-core"))
 
     testImplementation(libs.junit)

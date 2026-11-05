@@ -17,13 +17,18 @@ import id.motionlab.engine.rendering.FrameRenderer
 import id.motionlab.engine.rendering.RenderContext
 import id.motionlab.engine.rendering.RenderThread
 import id.motionlab.engine.rendering.TextureCache
+import id.motionlab.engine.rendering.QuadBlend
 import id.motionlab.engine.rendering.TexturedQuadRenderer
 import id.motionlab.engine.text.FontManager
 import id.motionlab.engine.text.TextAlign
 import id.motionlab.engine.text.TextObject
 import id.motionlab.engine.text.TextRenderer
 import id.motionlab.engine.text.TypographyConfig
+import id.motionlab.engine.timeline.BlendMode
 import id.motionlab.engine.timeline.EditorSession
+import id.motionlab.engine.timeline.MaskSpec
+import id.motionlab.engine.timeline.blendMode
+import id.motionlab.engine.timeline.mask
 import id.motionlab.engine.timeline.MediaClip
 import id.motionlab.engine.timeline.PreviewMath
 import id.motionlab.engine.timeline.RenderItem
@@ -40,13 +45,15 @@ internal class EditorScene(
     private val session: EditorSession,
     private val settings: PreviewSettings,
     private val measuredSizes: java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Int>>,
+    private val media: PreviewMedia? = null,
+    fonts: FontManager = FontManager(),
 ) : ContextListener, FrameRenderer {
     private var renderer: TexturedQuadRenderer? = null
     private var cache: TextureCache? = null
     private val sizes = HashMap<String, Pair<Int, Int>>()
     private val matrix = FloatArray(16)
     private val IDENTITY = FloatArray(16).also { it[0] = 1f; it[5] = 1f; it[10] = 1f; it[15] = 1f }
-    private val text = TextRenderer(FontManager())
+    private val text = TextRenderer(fonts)
 
     @Volatile
     var drawnItems = 0
@@ -108,11 +115,18 @@ internal class EditorScene(
         for (item in frame.items) {
             if (!item.trackKind.hasVisuals) continue
             try {
-                val key = keyOf(item.clip, item.trackKind)
-                val tex = c.getOrUpload(key) { bitmapFor(item, key) }
-                val (w, h) = sizes[key] ?: PreviewMath.contentSize(item.clip, cw)
+                // Real pixels for image/video clips when they are already decoded; otherwise the labelled tile.
+                val real = media?.frameFor(item.clip, item.trackKind, item.localTimeUs)
+                val mask = item.clip.mask?.takeIf { it.isActive }
+                val baseKey = real?.key ?: keyOf(item.clip, item.trackKind)
+                val key = if (mask != null) "$baseKey|m${item.clip.payload.filterKeys { it.startsWith(MaskSpec.KEY) }.hashCode()}" else baseKey
+                val tex = c.getOrUpload(key, recycleBitmap = real == null || mask != null) {
+                    val b = real?.bitmap ?: bitmapFor(item, baseKey)
+                    if (mask != null) MaskBitmap.apply(b, mask).also { if (real == null && it !== b) b.recycle() } else b
+                }
+                val (w, h) = sizes[baseKey] ?: PreviewMath.contentSize(item.clip, cw)
                 PreviewMath.quadMatrix(item.world, w.toDouble(), h.toDouble(), cw, ch, matrix)
-                r.drawMatrix(tex, matrix, item.opacity.toFloat())
+                r.drawMatrix(tex, matrix, item.opacity.toFloat(), quadBlendOf(item.clip.blendMode))
                 n++
             } catch (e: Exception) {
                 MlLog.w("EditorScene", "clip ${item.clip.id} not drawn: ${e.message}")
@@ -120,6 +134,14 @@ internal class EditorScene(
         }
         drawnItems = n
         GLES20.glDisable(GLES20.GL_SCISSOR_TEST)
+    }
+
+    /** Only modes the renderer can draw exactly are mapped; Darken / Lighten / Overlay fall back to Normal (see BlendMode). */
+    private fun quadBlendOf(mode: BlendMode): QuadBlend = when (mode) {
+        BlendMode.MULTIPLY -> QuadBlend.MULTIPLY
+        BlendMode.SCREEN -> QuadBlend.SCREEN
+        BlendMode.ADD -> QuadBlend.ADD
+        else -> QuadBlend.NORMAL
     }
 
     /** 16 cells across, square cells, two greys: the usual transparency indicator. */
@@ -156,7 +178,7 @@ internal class EditorScene(
                     TextObject(
                         clip.id,
                         payload["text"]?.takeIf { it.isNotEmpty() } ?: "Text",
-                        TypographyConfig(sizePx = size, colorArgb = color, bold = payload["bold"] == "true", align = TextAlign.CENTER),
+                        TypographyConfig(fontFamily = payload["font"]?.takeIf { it.isNotBlank() } ?: "sans-serif", sizePx = size, colorArgb = color, bold = payload["bold"] == "true", align = TextAlign.CENTER),
                         maxWidthPx = payload["w"]?.toIntOrNull(),
                     ),
                 )
@@ -219,6 +241,8 @@ class EditorPreviewView(
     private val session: EditorSession,
     private val settings: PreviewSettings = PreviewSettings(),
     private val measuredSizes: java.util.concurrent.ConcurrentHashMap<String, Pair<Int, Int>> = java.util.concurrent.ConcurrentHashMap(),
+    private val media: PreviewMedia? = null,
+    private val fonts: FontManager = FontManager(),
 ) : SurfaceView(context), SurfaceHolder.Callback {
     private var thread: RenderThread? = null
     private var loop: FrameLoop? = null
@@ -248,7 +272,7 @@ class EditorPreviewView(
 
     private fun createPipeline(): RenderThread {
         val t = RenderThread("ml-render-editor")
-        val s = EditorScene(session, settings, measuredSizes)
+        val s = EditorScene(session, settings, measuredSizes, media, fonts)
         try {
             t.setContextListener(s)
         } catch (e: Exception) {

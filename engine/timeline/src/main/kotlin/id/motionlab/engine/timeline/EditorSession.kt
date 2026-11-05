@@ -2,6 +2,7 @@ package id.motionlab.engine.timeline
 
 import id.motionlab.core.common.ErrorCode
 import id.motionlab.core.common.MlException
+import id.motionlab.core.project.AssetRefDto
 import id.motionlab.core.project.ProjectDocument
 import id.motionlab.engine.animation.AppliedPreset
 import id.motionlab.engine.animation.Interpolation
@@ -41,12 +42,81 @@ class EditorSession(
     val fps: Double = 30.0,
     private val ids: IdSource = IdSource.RANDOM,
     private val clock: TimelineClock = TimelineClock(),
+    initialAssets: List<AssetRefDto> = emptyList(),
 ) {
     private val history = History(EditorState(initial))
     private val listeners = CopyOnWriteArrayList<(EditorState) -> Unit>()
 
     @Volatile
     private var current: EditorState = history.state
+
+    // ---- media assets (project-level references; NOT part of undo history: removing/adding media is a library action) ----
+    @Volatile
+    private var assetList: List<AssetRefDto> = initialAssets
+
+    /** Bumped on every library change so observers (autosave) can tell. */
+    @Volatile
+    var assetsVersion: Int = 0
+        private set
+
+    val assets: List<AssetRefDto> get() = assetList
+
+    fun asset(id: String?): AssetRefDto? = id?.let { i -> assetList.firstOrNull { it.id == i } }
+
+    /** Adds or replaces (same id) library entries. */
+    @Synchronized
+    fun putAssets(items: List<AssetRefDto>) {
+        if (items.isEmpty()) return
+        val byId = LinkedHashMap<String, AssetRefDto>()
+        assetList.forEach { byId[it.id] = it }
+        items.forEach { byId[it.id] = it }
+        assetList = byId.values.toList()
+        assetsVersion++
+        for (l in listeners) l(current)
+    }
+
+    /** Clips that use [assetId]. */
+    fun clipsUsing(assetId: String): List<String> = timeline.tracks.flatMap { t -> t.clips.filter { it.assetId == assetId }.map { it.id } }
+
+    /** Removes the library REFERENCE only (the user's file is never touched). Refused while clips still use it. */
+    @Synchronized
+    fun removeAsset(assetId: String) {
+        val used = clipsUsing(assetId)
+        if (used.isNotEmpty()) throw MlException(ErrorCode.INVALID_ARGUMENT, "Media is used by ${used.size} clip(s); delete them first")
+        if (assetList.none { it.id == assetId }) throw MlException(ErrorCode.NOT_FOUND, "Unknown media $assetId")
+        assetList = assetList.filter { it.id != assetId }
+        assetsVersion++
+        for (l in listeners) l(current)
+    }
+
+    /**
+     * Puts an imported asset on the timeline at [startUs]: reuses the last unlocked track of the right kind or creates one,
+     * in ONE undo step. Returns the new clip id.
+     */
+    @Synchronized
+    fun addAssetClip(assetId: String, startUs: Long): String {
+        val a = asset(assetId) ?: throw MlException(ErrorCode.NOT_FOUND, "Unknown media $assetId")
+        val plan = AssetPlanner.plan(a, canvasWidth, canvasHeight)
+        val existing = timeline.tracks.lastOrNull { it.kind == plan.trackKind && !it.locked }
+        val trackId = existing?.id ?: ids.next("track")
+        val start = existing?.firstFreeStart(startUs, plan.durationUs) ?: startUs
+        val clipId = ids.next("clip")
+        val clip = MediaClip(clipId, start, plan.durationUs, assetId, payload = plan.payload, sourceDurationUs = plan.sourceDurationUs)
+        val cmds = ArrayList<Command>(2)
+        if (existing == null) cmds += AddTrack(Track(trackId, "${plan.trackKind.label} ${timeline.tracks.count { it.kind == plan.trackKind } + 1}", plan.trackKind))
+        cmds += AddClip(trackId, clip)
+        execute(CompositeCommand("Add ${a.displayName ?: "media"}", cmds))
+        select(Selection(clipIds = setOf(clipId)))
+        return clipId
+    }
+
+    @Synchronized
+    fun duplicateTrack(trackId: String): String {
+        val newId = ids.next("track")
+        val ids2 = timeline.track(trackId).clips.map { ids.next("clip") }
+        execute(DuplicateTrack(trackId, newId, ids2))
+        return newId
+    }
 
     @Volatile
     private var clipboardClips: ClipboardClips? = null
@@ -366,12 +436,14 @@ class EditorSession(
 
     /** The document with this session's timeline written into it (tracks, layers, clips, keyframes, paths, presets). */
     fun toDocument(base: ProjectDocument, nowMs: Long = System.currentTimeMillis()): ProjectDocument =
-        TimelineMapper.applyTo(base, history.state.timeline).copy(modifiedAtMs = nowMs)
+        TimelineMapper.applyTo(base, history.state.timeline).copy(modifiedAtMs = nowMs, assets = assetList)
 
     /** Replaces the timeline (project load). Undo history starts fresh. */
     @Synchronized
     fun load(document: ProjectDocument) {
         history.replaceState(EditorState(TimelineMapper.toTimeline(document)), clearHistory = true)
+        assetList = document.assets
+        assetsVersion++
         clock.seekTo(0)
         publish()
     }
@@ -381,7 +453,7 @@ class EditorSession(
         fun fromDocument(document: ProjectDocument, ids: IdSource = IdSource.RANDOM, clock: TimelineClock = TimelineClock()) =
             EditorSession(
                 TimelineMapper.toTimeline(document),
-                document.config.width, document.config.height, document.config.frameRate, ids, clock,
+                document.config.width, document.config.height, document.config.frameRate, ids, clock, document.assets,
             )
 
         /** Offset applied to duplicated keyframes so the copies do not sit on top of the originals. */

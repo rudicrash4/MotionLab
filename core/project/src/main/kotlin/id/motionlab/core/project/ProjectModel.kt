@@ -34,6 +34,19 @@ data class AssetRefDto(
     /** VIDEO, AUDIO, IMAGE, FONT or OTHER (kept as a string so unknown future kinds still load). */
     val kind: String,
     val displayName: String? = null,
+    // ---- Phase 3 (all optional, so older files load unchanged) ----
+    /** Length of audio/video in microseconds; 0 for images and fonts. */
+    val durationUs: Long = 0,
+    val width: Int = 0,
+    val height: Int = 0,
+    val mimeType: String? = null,
+    val sampleRate: Int = 0,
+    val channels: Int = 0,
+    val hasAudio: Boolean = false,
+    val sizeBytes: Long = 0,
+    /** For fonts: the family name read from the font file (what text layers refer to). */
+    val fontFamily: String? = null,
+    val addedAtMs: Long = 0,
 )
 
 @Serializable

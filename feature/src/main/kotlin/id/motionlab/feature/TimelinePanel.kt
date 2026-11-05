@@ -37,6 +37,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.isActive
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -135,7 +138,7 @@ private class MarkCache {
  * consumed, so the surrounding vertical scroll moves the track list.
  */
 @Composable
-fun TimelinePanel(c: EditorController, modifier: Modifier = Modifier) {
+fun TimelinePanel(c: EditorController, modifier: Modifier = Modifier, media: MediaLibraryController? = null) {
     val density = LocalDensity.current
     val expandedPx = with(density) { ROW_EXPANDED.toPx() }
     val collapsedPx = with(density) { ROW_COLLAPSED.toPx() }
@@ -165,7 +168,7 @@ fun TimelinePanel(c: EditorController, modifier: Modifier = Modifier) {
                 }
             }
             Box(Modifier.weight(1f).fillMaxSize().verticalScroll(scroll)) {
-                ClipCanvas(c, rows, contentHeight, Modifier.fillMaxWidth())
+                ClipCanvas(c, rows, contentHeight, Modifier.fillMaxWidth(), media)
             }
         }
     }
@@ -220,6 +223,11 @@ private fun TrackHeader(c: EditorController, track: TrackHeaderModel, height: Dp
                         val tl = c.session.timeline
                         c.run { c.session.execute(MoveTrack(track.id, (tl.trackIndex(track.id) - 1).coerceAtLeast(0))) }
                     })
+                    DropdownMenuItem(
+                        text = { Text("Duplicate layer") },
+                        modifier = Modifier.testTag("duplicate-${track.id}"),
+                        onClick = { menu = false; c.run { c.session.duplicateTrack(track.id) } },
+                    )
                     DropdownMenuItem(text = { Text("Parent layer…") }, onClick = { menu = false; layerMenu = true })
                     DropdownMenuItem(
                         text = { Text("Remove track") },
@@ -317,7 +325,7 @@ private fun DrawScope.drawPlayhead(c: EditorController, height: Float) {
 private enum class Mode { PENDING, MOVE_CLIPS, TRIM_START, TRIM_END, MOVE_KEYFRAMES, SCROLL_X, PASS }
 
 @Composable
-private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeight: Dp, modifier: Modifier) {
+private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeight: Dp, modifier: Modifier, media: MediaLibraryController?) {
     val density = LocalDensity.current
     val scheme = MaterialTheme.colorScheme
     val labelPaint = remember(density) {
@@ -328,6 +336,28 @@ private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeig
     }
     val marks = remember { MarkCache() }
     var snapGuideUs by remember { mutableStateOf<Long?>(null) }
+
+    // Video thumbnails and audio waveforms: loaded in the background (cancelled with this composable), cached by the library,
+    // and only READ while drawing. The effect re-runs when clips or library entries are added/removed, not while dragging.
+    val thumbs = remember { HashMap<String, androidx.compose.ui.graphics.ImageBitmap>() }
+    var mediaVersion by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(media) {
+        val lib = media ?: return@LaunchedEffect
+        androidx.compose.runtime.snapshotFlow { c.timeline.tracks.sumOf { it.clips.size } to lib.assets }
+            .collect {
+                val used = c.session.timeline.tracks.flatMap { tr -> tr.clips.mapNotNull { cl -> cl.assetId } }.toSet()
+                for (id in used) {
+                    val a = lib.session.asset(id) ?: continue
+                    if (a.kind == "AUDIO" && lib.waveforms.cached(id) == null) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { lib.waveforms.load(a) { !isActive } }
+                        mediaVersion++
+                    } else if (a.kind == "VIDEO" && id !in thumbs) {
+                        val bmp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { lib.bitmaps.load(a, 0, 96) { !isActive } }
+                        if (bmp != null) { thumbs[id] = bmp.asImageBitmap(); mediaVersion++ }
+                    }
+                }
+            }
+    }
 
     Canvas(
         modifier
@@ -517,6 +547,7 @@ private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeig
                 }
             },
     ) {
+        @Suppress("UNUSED_VARIABLE") val mv = mediaVersion // redraw when a thumbnail / waveform arrives
         val vp = c.viewport
         val tl = c.timeline
         val sel = c.selection
@@ -543,6 +574,37 @@ private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeig
                     val hw = minOf(handle, w / 3f)
                     drawRect(MlColors.Accent, Offset(x0, top), Size(hw * 0.35f, bottom - top))
                     drawRect(MlColors.Accent, Offset(x1 - hw * 0.35f, top), Size(hw * 0.35f, bottom - top))
+                }
+                val aid = clip.assetId
+                if (media != null && aid != null && w > 8f) {
+                    if (track.kind == TrackKind.VIDEO) {
+                        thumbs[aid]?.let { img ->
+                            val th = (bottom - top - 4f).coerceAtLeast(1f)
+                            val tw = (th * img.width / img.height).coerceAtLeast(1f)
+                            clipRect(x0, top, x1, bottom) {
+                                var tx = x0 + 2f
+                                while (tx < x1 && tx < size.width) {
+                                    if (tx + tw > 0f) drawImage(img, srcOffset = androidx.compose.ui.unit.IntOffset.Zero, srcSize = androidx.compose.ui.unit.IntSize(img.width, img.height), dstOffset = androidx.compose.ui.unit.IntOffset(tx.toInt(), (top + 2f).toInt()), dstSize = androidx.compose.ui.unit.IntSize(tw.toInt().coerceAtLeast(1), th.toInt().coerceAtLeast(1)), alpha = 0.55f)
+                                    tx += tw
+                                }
+                            }
+                        }
+                    } else if (track.kind == TrackKind.AUDIO) {
+                        media.waveforms.cached(aid)?.let { wf ->
+                            val mid = (top + bottom) / 2f
+                            val half = (bottom - top) / 2f - 3f
+                            val stepPx = 2f
+                            val stepUs = vp.pxToDuration(stepPx)
+                            var px = maxOf(x0, 0f)
+                            val end = minOf(x1, size.width)
+                            while (px < end) {
+                                val tUs = vp.pxToTime(px) - clip.startUs + clip.sourceStartUs
+                                val peak = wf.peakBetween(tUs, tUs + stepUs)
+                                drawLine(Color.White.copy(alpha = 0.8f), Offset(px, mid - peak * half), Offset(px, mid + peak * half), 1.5f)
+                                px += stepPx
+                            }
+                        }
+                    }
                 }
                 if (w > 40f) {
                     drawIntoCanvas { cv ->

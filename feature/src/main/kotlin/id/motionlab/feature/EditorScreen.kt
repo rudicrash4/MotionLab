@@ -114,6 +114,9 @@ fun EditorLayout(controller: EditorController, projectName: String, onClose: () 
         }
     }
     var panelOpen by remember { mutableStateOf(true) }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val library = remember(controller) { MediaLibraryController(context, controller.session, scope) }
+    DisposableEffect(library) { onDispose { library.dispose() } }
 
     Column(Modifier.fillMaxSize().background(MlColors.Black).testTag("editor-root")) {
         Header(controller, projectName, onClose)
@@ -124,21 +127,21 @@ fun EditorLayout(controller: EditorController, projectName: String, onClose: () 
             if (wide) {
                 Row(Modifier.fillMaxSize()) {
                     Column(Modifier.weight(1.3f).fillMaxHeight()) {
-                        PreviewArea(controller, Modifier.weight(1f).fillMaxWidth())
+                        PreviewArea(controller, library, Modifier.weight(1f).fillMaxWidth())
                         PlaybackBar(controller)
                         TimelineToolbar(controller)
-                        Box(Modifier.height(availableHeight * 0.45f)) { TimelinePanel(controller) }
+                        Box(Modifier.height(availableHeight * 0.45f)) { TimelinePanel(controller, media = library) }
                     }
-                    PanelTabs(controller, true, {}, Modifier.weight(1f).fillMaxHeight())
+                    PanelTabs(controller, library, true, {}, Modifier.weight(1f).fillMaxHeight())
                 }
             } else {
                 Column(Modifier.fillMaxSize()) {
-                    PreviewArea(controller, Modifier.height(availableHeight * 0.30f).fillMaxWidth())
+                    PreviewArea(controller, library, Modifier.height(availableHeight * 0.30f).fillMaxWidth())
                     PlaybackBar(controller)
                     TimelineToolbar(controller)
-                    Box(Modifier.weight(1f)) { TimelinePanel(controller) }
+                    Box(Modifier.weight(1f)) { TimelinePanel(controller, media = library) }
                     val panelMod = if (panelOpen) Modifier.height(availableHeight * 0.36f) else Modifier
-                    PanelTabs(controller, panelOpen, { panelOpen = !panelOpen }, panelMod.fillMaxWidth())
+                    PanelTabs(controller, library, panelOpen, { panelOpen = !panelOpen }, panelMod.fillMaxWidth())
                 }
             }
         }
@@ -202,12 +205,12 @@ private fun Header(c: EditorController, name: String, onClose: () -> Unit) {
 }
 
 @Composable
-private fun PreviewArea(c: EditorController, modifier: Modifier) {
+private fun PreviewArea(c: EditorController, library: MediaLibraryController, modifier: Modifier) {
     Box(modifier.background(MlColors.Black), contentAlignment = Alignment.Center) {
         val aspect = c.session.canvasWidth.toFloat() / c.session.canvasHeight
         Box(Modifier.fillMaxHeight().aspectRatio(aspect, matchHeightConstraintsFirst = true)) {
             AndroidView(
-                factory = { EditorPreviewView(it, c.session, c.previewSettings, c.contentSizes) },
+                factory = { EditorPreviewView(it, c.session, c.previewSettings, c.contentSizes, library.preview, library.fonts) },
                 modifier = Modifier.fillMaxSize().testTag("preview"),
             )
             PreviewOverlay(c, Modifier.fillMaxSize())
@@ -312,9 +315,9 @@ private fun addGenerated(c: EditorController, kind: TrackKind, payload: Map<Stri
 }
 
 @Composable
-private fun PanelTabs(c: EditorController, open: Boolean, toggle: () -> Unit, modifier: Modifier) {
+private fun PanelTabs(c: EditorController, library: MediaLibraryController, open: Boolean, toggle: () -> Unit, modifier: Modifier) {
     var tab by remember { mutableStateOf(0) }
-    val titles = listOf("Attributes", "Anchor & Align", "Graph", "Path", "Layers")
+    val titles = listOf("Attributes", "Anchor & Align", "Graph", "Path", "Layers", "Media")
     Column(modifier.background(MlColors.Panel)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Row(Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
@@ -332,11 +335,12 @@ private fun PanelTabs(c: EditorController, open: Boolean, toggle: () -> Unit, mo
         if (open) {
             Box(Modifier.fillMaxSize()) {
                 when (tab) {
-                    0 -> PropertyPanel(c)
+                    0 -> PropertyPanel(c, fontFamilies = library.assets.filter { it.kind == "FONT" }.mapNotNull { it.fontFamily })
                     1 -> AnchorAlignPanel(c)
                     2 -> GraphEditor(c)
                     3 -> PathEditor(c)
-                    else -> LayersPanel(c)
+                    4 -> LayersPanel(c)
+                    else -> MediaLibraryPanel(library, c)
                 }
             }
         }

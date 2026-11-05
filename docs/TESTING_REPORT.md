@@ -47,3 +47,6 @@ errors that CI will reveal.
 - JVM (run in sandbox): engine/timeline 105 tests pass (incl. 7 new TransactionTest, layout/clipboard tests); animation incl. GraphMath pass; export planner 7 pass.
 - Instrumented tests: updated for the new layout (overflow `tb-more`, `tab-Attributes`, unlock before remove, 2 new tests). NOT run here; result must come from CI.
 - Compose sources parse-checked only (no type-check, no APK in sandbox).
+
+## Phase 3
+JVM in sandbox: timeline 127 OK, core/resource 20 OK. Not run here: Android compile, APK, instrumented tests (MediaImportTest, MediaLibraryUiTest, earlier suites), ProjectCodecPhase3Test. See docs/PHASE3.md.

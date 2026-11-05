@@ -26,7 +26,7 @@ interface Command {
     fun apply(state: EditorState): EditorState
 }
 
-private fun invalid(msg: String): Nothing = throw MlException(ErrorCode.INVALID_ARGUMENT, msg)
+internal fun invalid(msg: String): Nothing = throw MlException(ErrorCode.INVALID_ARGUMENT, msg)
 
 internal fun requireClipEditable(tl: Timeline, clipId: String): Pair<Track, MediaClip> {
     val found = tl.requireClip(clipId)

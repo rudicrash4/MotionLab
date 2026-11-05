@@ -16,6 +16,13 @@ class GlTexture internal constructor(val id: Int, val width: Int, val height: In
 }
 
 /**
+ * Fixed-function blend modes the quad renderer can draw EXACTLY on an opaque destination (the preview canvas is cleared
+ * to an opaque colour first). Darken, Lighten and Overlay need to read the destination colour in a shader and are not
+ * part of this enum.
+ */
+enum class QuadBlend { NORMAL, MULTIPLY, SCREEN, ADD }
+
+/**
  * Draws textured quads (the building block of the compositor). Needs a current GL context for every call.
  * The quad fills the viewport and is then scaled / rotated / translated by [draw]'s arguments.
  *
@@ -142,14 +149,19 @@ class TexturedQuadRenderer : AutoCloseable {
      * space. Needed for transforms [draw] cannot express (skew, anchor points, parent hierarchies). Same cost and
      * state handling as [draw]; [draw] itself is unchanged in behaviour.
      */
-    fun drawMatrix(texture: GlTexture, matrix: FloatArray, alpha: Float = 1f) {
+    fun drawMatrix(texture: GlTexture, matrix: FloatArray, alpha: Float = 1f, blend: QuadBlend = QuadBlend.NORMAL) {
         check(!closed && !abandoned) { "renderer is closed" }
         require(matrix.size >= 16) { "matrix needs 16 floats" }
         if (texture.deleted) throw MlException(ErrorCode.GPU, "Texture already deleted")
 
         GLES20.glUseProgram(program)
         GLES20.glEnable(GLES20.GL_BLEND)
-        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA) // textures from Bitmap are premultiplied
+        when (blend) { // textures from Bitmap are premultiplied; NORMAL is exactly the previous behaviour
+            QuadBlend.NORMAL -> GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            QuadBlend.MULTIPLY -> GLES20.glBlendFunc(GLES20.GL_DST_COLOR, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            QuadBlend.SCREEN -> GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_COLOR)
+            QuadBlend.ADD -> GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE)
+        }
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture.id)
         GLES20.glUniform1i(samplerLoc, 0)
