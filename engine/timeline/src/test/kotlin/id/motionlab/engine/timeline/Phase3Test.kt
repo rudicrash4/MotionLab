@@ -47,12 +47,57 @@ class Phase3Test {
         assertEquals(1, s.timeline.tracks.single().clips.size)
     }
 
-    @Test fun secondClipOfTheSameKindReusesTheTrackAndDoesNotOverlap() {
+    // Phase 3.1: the old behaviour pushed a second clip BEHIND the first one, so the preview at the playhead stayed empty.
+    @Test fun secondClipAtTheSameTimeGoesToANewTrackStartingAtThePlayheadNotPushedLater() {
         val s = session()
         s.addAssetClip("v1", 0)
-        val second = s.addAssetClip("v1", 0)
+        val second = s.insertAsset("v1", 0)
+        assertEquals(2, s.timeline.tracks.size)
+        assertTrue(second.createdTrack)
+        assertEquals(0L, second.startUs)
+        assertEquals(0L, s.timeline.requireClip(second.clipId).second.startUs)
+        for (t in s.timeline.tracks) assertEquals("no overlap inside a track", t.clips.size, 1)
+    }
+
+    @Test fun clipReusesAnExistingTrackWhenTheTimeIsFree() {
+        val s = session()
+        s.addAssetClip("v1", 0)
+        val later = s.insertAsset("v1", 4_000_000L)
         assertEquals(1, s.timeline.tracks.size)
-        assertEquals(4_000_000L, s.timeline.requireClip(second).second.startUs)
+        assertEquals(false, later.createdTrack)
+        assertEquals(4_000_000L, s.timeline.requireClip(later.clipId).second.startUs)
+    }
+
+    @Test fun lockedPreferredTrackIsSkippedWithAnExplanation() {
+        val s = session()
+        s.addAssetClip("i1", 0)
+        val tid = s.timeline.tracks.single().id
+        s.execute(SetTrackFlags(tid, locked = true))
+        val r = s.insertAsset("i1", 10_000_000L, preferredTrackId = tid)
+        assertTrue(r.createdTrack)
+        assertTrue(r.note!!.contains("locked"))
+        assertEquals(2, s.timeline.tracks.size)
+        assertEquals(setOf(r.clipId), s.selection.clipIds)
+    }
+
+    @Test fun selectedFreeTrackOfTheRightKindIsPreferred() {
+        val s = session()
+        s.addAssetClip("i1", 0)
+        s.insertAsset("i1", 0) // second image track
+        val first = s.timeline.tracks.first().id
+        val r = s.insertAsset("i1", 6_000_000L, preferredTrackId = first)
+        assertEquals(first, r.trackId)
+        assertEquals(false, r.createdTrack)
+    }
+
+    @Test fun audioClipKeepsTheAssetDurationOnAnAudioTrack() {
+        val s = session()
+        val r = s.insertAsset("a1", 1_000_000L)
+        val (t, c) = s.timeline.requireClip(r.clipId)
+        assertEquals(TrackKind.AUDIO, t.kind)
+        assertEquals(9_000_000L, c.durationUs)
+        assertEquals("a1", c.assetId)
+        assertEquals(1_000_000L, c.startUs)
     }
 
     @Test fun fontsUnknownAndDurationlessMediaAreRejected() {

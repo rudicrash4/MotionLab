@@ -94,7 +94,7 @@ fun PathEditor(c: EditorController, modifier: Modifier = Modifier) {
                 Switch(checked = corner, onCheckedChange = { corner = it }, modifier = Modifier.testTag("path-corner"))
             }
             OutlinedButton(onClick = { c.run { animateAlongPath(c, owner) } }, modifier = Modifier.testTag("path-animate")) {
-                Text("Animate along path (0 → 1 over the whole clip)")
+                Text("Animate along path (0 to 1 over the whole clip)")
             }
         }
         PathCanvas(c, owner, path, selectedPoint, { selectedPoint = it }, corner, Modifier.fillMaxWidth().weight(1f))

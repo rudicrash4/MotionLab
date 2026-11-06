@@ -1,6 +1,10 @@
 package id.motionlab.feature
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.graphics.vector.ImageVector
+import id.motionlab.engine.timeline.SetTrackFlags
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -58,40 +62,101 @@ internal fun formatValue(v: Double, step: Double): String {
     return "%.${decimals}f".format(java.util.Locale.US, v)
 }
 
-/** Edits the selected clip/layer: content, every registered property with its stopwatch, keyframes and presets. */
+/** The separate editing sections of the property editor; only the selected one is shown. */
+enum class PropertyCategory(val label: String, val icon: ImageVector) {
+    TRANSFORM("Transform", MlIcons.Transform),
+    CONTENT("Content", MlIcons.Font),
+    MASK("Mask", MlIcons.Mask),
+    BLEND("Blend", MlIcons.Blend),
+    AUDIO("Audio", MlIcons.Volume),
+    ANIMATION("Animation", MlIcons.Animation),
+}
+
+/**
+ * Which categories apply to the selection. Only categories with REAL controls are offered: Color (brightness / contrast /
+ * saturation) and audio volume / fades / balance are not implemented in the editor yet, so they are not listed.
+ */
+internal fun categoriesFor(owner: AnimationOwner, kind: TrackKind?): List<PropertyCategory> = when {
+    owner !is AnimationOwner.ClipOwner -> listOf(PropertyCategory.TRANSFORM, PropertyCategory.ANIMATION)
+    kind == TrackKind.AUDIO -> listOf(PropertyCategory.AUDIO)
+    kind == TrackKind.TEXT || kind == TrackKind.SHAPE -> listOf(PropertyCategory.TRANSFORM, PropertyCategory.CONTENT, PropertyCategory.MASK, PropertyCategory.BLEND, PropertyCategory.ANIMATION)
+    kind != null && kind.hasVisuals -> listOf(PropertyCategory.TRANSFORM, PropertyCategory.MASK, PropertyCategory.BLEND, PropertyCategory.ANIMATION)
+    else -> listOf(PropertyCategory.TRANSFORM, PropertyCategory.ANIMATION)
+}
+
+/** Edits the selected clip/layer, one category at a time (Transform, Content, Mask, Blend, Audio, Animation). */
 @Composable
 fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier, fontFamilies: List<String> = emptyList()) {
     val s = c.session
     val owner = c.ownerOfSelection()?.takeIf { s.exists(it) }
     @Suppress("UNUSED_VARIABLE") val editVersion = c.timeline // observable read: recompose on committed/previewed edits
     @Suppress("UNUSED_VARIABLE") val playhead = c.playheadUs // ... and when the playhead moves
-    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(8.dp).testTag("property-panel"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("property-panel"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (owner == null) {
             Text("Select a clip or layer to edit its properties.", style = MaterialTheme.typography.bodyMedium)
             return@Column
         }
-        Text(s.displayName(owner), style = MaterialTheme.typography.titleSmall)
-        if (owner is AnimationOwner.ClipOwner) {
-            ContentSection(c, owner.clipId, fontFamilies)
-            LookSection(c, owner.clipId)
+        val clipKind = (owner as? AnimationOwner.ClipOwner)?.let { c.timeline.findClip(it.clipId)?.first?.kind }
+        val cats = categoriesFor(owner, clipKind)
+        var chosen by remember(owner) { mutableStateOf(cats.first()) }
+        // Selecting a keyframe in the timeline jumps to the Animation section, where keyframes are edited.
+        val hasKeyframeSelection = c.selection.keyframes.isNotEmpty()
+        androidx.compose.runtime.LaunchedEffect(owner, hasKeyframeSelection) {
+            if (hasKeyframeSelection && PropertyCategory.ANIMATION in cats) chosen = PropertyCategory.ANIMATION
         }
-        PresetsMenu(c, owner)
-        val localT = s.localTime(owner)
-        val anim = s.anim(owner)
-        val groups = PropertyRegistry.all().groupBy { it.group }
-        for ((group, defs) in groups) {
-            Text(group, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
-            for (def in defs) PropertyRow(c, owner, def, localT, anim.properties.isAnimated(def.name), anim.properties.track(def.name).at(localT)?.id)
+        val cat = if (chosen in cats) chosen else cats.first()
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(s.displayName(owner), style = MaterialTheme.typography.labelLarge, maxLines = 1, modifier = Modifier.padding(end = 4.dp).widthIn(max = 110.dp))
+            cats.forEach { k ->
+                FilterChip(
+                    selected = cat == k, onClick = { chosen = k },
+                    leadingIcon = { MlIcon(k.icon, null, size = 16.dp) },
+                    label = { Text(k.label, maxLines = 1) }, modifier = Modifier.testTag("prop-cat-${k.name}"),
+                )
+            }
         }
-        KeyframeSection(c, owner)
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).testTag("prop-section-${cat.name}"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            when (cat) {
+                PropertyCategory.TRANSFORM -> {
+                    val localT = s.localTime(owner)
+                    val anim = s.anim(owner)
+                    for (def in PropertyRegistry.all()) PropertyRow(c, owner, def, localT, anim.properties.isAnimated(def.name), anim.properties.track(def.name).at(localT)?.id)
+                }
+                PropertyCategory.CONTENT -> if (owner is AnimationOwner.ClipOwner) ContentSection(c, owner.clipId, fontFamilies)
+                PropertyCategory.MASK -> if (owner is AnimationOwner.ClipOwner) MaskSection(c, owner.clipId)
+                PropertyCategory.BLEND -> if (owner is AnimationOwner.ClipOwner) BlendSection(c, owner.clipId)
+                PropertyCategory.AUDIO -> if (owner is AnimationOwner.ClipOwner) AudioSection(c, owner.clipId)
+                PropertyCategory.ANIMATION -> {
+                    PresetsMenu(c, owner)
+                    Text("Add keyframes with the diamond next to a value in Transform.", style = MaterialTheme.typography.bodySmall, color = MlColors.Muted)
+                    KeyframeSection(c, owner)
+                }
+            }
+        }
     }
+}
+
+/** The only audio control that exists today: muting the track the clip is on (honoured by playback). Volume, fades and balance are not implemented. */
+@Composable
+private fun AudioSection(c: EditorController, clipId: String) {
+    val track = c.timeline.findClip(clipId)?.first ?: return
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        MlIcon(MlIcons.Volume, null)
+        Text("Mute this track", Modifier.weight(1f))
+        androidx.compose.material3.Switch(
+            checked = track.muted,
+            onCheckedChange = { c.run { c.session.execute(SetTrackFlags(track.id, muted = it)) } },
+            modifier = Modifier.testTag("audio-mute"),
+        )
+    }
+    Text("Volume, fade in / out and balance are not available yet.", style = MaterialTheme.typography.bodySmall, color = MlColors.Muted, modifier = Modifier.testTag("audio-note"))
 }
 
 @Composable
 private fun PresetsMenu(c: EditorController, owner: AnimationOwner) {
     var open by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.testTag("presets-button")) { Text("Animation presets ▾") }
+        MenuButton("Animation presets", "presets-button") { open = true }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             for (cat in PresetCategory.values()) {
                 PresetLibrary.byCategory(cat).forEach { p ->
@@ -126,7 +191,7 @@ private fun ContentSection(c: EditorController, clipId: String, fontFamilies: Li
     if (track.kind == TrackKind.TEXT) {
         var fontMenu by remember { mutableStateOf(false) }
         Box {
-            OutlinedButton(onClick = { fontMenu = true }, modifier = Modifier.testTag("font-button")) { Text("Font: ${clip.payload["font"] ?: "System default"} ▾") }
+            MenuButton("Font: ${clip.payload["font"] ?: "System default"}", "font-button") { fontMenu = true }
             DropdownMenu(expanded = fontMenu, onDismissRequest = { fontMenu = false }) {
                 DropdownMenuItem(text = { Text("System default") }, modifier = Modifier.testTag("font-default"), onClick = {
                     fontMenu = false
@@ -160,15 +225,15 @@ private fun PropertyRow(c: EditorController, owner: AnimationOwner, def: Propert
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(def.displayName + if (def.unit.isNotEmpty()) " (${def.unit})" else "", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             if (animated) {
-                IconCell("◀", "Previous keyframe of ${def.displayName}", "kf-prev-$tag") {
+                IconCell(MlIcons.KeyframePrevious, "Previous keyframe of ${def.displayName}", "kf-prev-$tag") {
                     s.anim(owner).properties.track(def.name).previousBefore(localT)?.let { c.seek(s.baseUs(owner) + it.timeUs) }
                 }
-                IconCell("▶", "Next keyframe of ${def.displayName}", "kf-next-$tag") {
+                IconCell(MlIcons.KeyframeNext, "Next keyframe of ${def.displayName}", "kf-next-$tag") {
                     s.anim(owner).properties.track(def.name).nextAfter(localT)?.let { c.seek(s.baseUs(owner) + it.timeUs) }
                 }
             }
             IconCell(
-                if (kfHereId != null) "◆" else "◇",
+                if (kfHereId != null) MlIcons.Keyframe else MlIcons.KeyframeEmpty,
                 if (kfHereId != null) "Remove keyframe of ${def.displayName}" else "Add keyframe of ${def.displayName}",
                 "kf-toggle-$tag",
             ) {
@@ -177,12 +242,12 @@ private fun PropertyRow(c: EditorController, owner: AnimationOwner, def: Propert
                     else s.addKeyframeAtPlayhead(owner, def.name)
                 }
             }
-            if (animated) IconCell("✕", "Remove animation of ${def.displayName}", "kf-clear-$tag") {
+            if (animated) IconCell(MlIcons.Close, "Remove animation of ${def.displayName}", "kf-clear-$tag") {
                 c.run { s.execute(ClearPropertyAnimation(owner, def.name, localT)) }
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            IconCell("−", "Decrease ${def.displayName}", "dec-$tag") { c.run { s.setValueAtPlayhead(owner, def.name, def.clamp(value - def.step)); s.endGesture() } }
+            IconCell(MlIcons.Remove, "Decrease ${def.displayName}", "dec-$tag") { c.run { s.setValueAtPlayhead(owner, def.name, def.clamp(value - def.step)); s.endGesture() } }
             var text by remember(owner, def.name, formatValue(value, def.step)) { mutableStateOf(formatValue(value, def.step)) }
             OutlinedTextField(
                 value = text,
@@ -194,7 +259,7 @@ private fun PropertyRow(c: EditorController, owner: AnimationOwner, def: Propert
                     text.toDoubleOrNull()?.let { v -> c.run { s.setValueAtPlayhead(owner, def.name, def.clamp(v)); s.endGesture() } }
                 }),
             )
-            IconCell("+", "Increase ${def.displayName}", "inc-$tag") { c.run { s.setValueAtPlayhead(owner, def.name, def.clamp(value + def.step)); s.endGesture() } }
+            IconCell(MlIcons.Add, "Increase ${def.displayName}", "inc-$tag") { c.run { s.setValueAtPlayhead(owner, def.name, def.clamp(value + def.step)); s.endGesture() } }
             val lo = def.min
             val hi = def.max
             if (lo != null && hi != null && hi > lo) {
@@ -217,11 +282,8 @@ private fun PropertyRow(c: EditorController, owner: AnimationOwner, def: Propert
 }
 
 @Composable
-internal fun IconCell(label: String, description: String, tag: String, onClick: () -> Unit) {
-    Box(
-        Modifier.size(40.dp).clickable(onClick = onClick).testTag(tag).semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) { Text(label) }
+internal fun IconCell(icon: ImageVector, description: String, tag: String, onClick: () -> Unit) {
+    MlIconButton(icon, description, tag, touch = 40.dp, iconSize = 20.dp, onClick = onClick)
 }
 
 @Composable
@@ -236,7 +298,8 @@ private fun KeyframeSection(c: EditorController, owner: AnimationOwner) {
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
         Box {
             OutlinedButton(onClick = { menu = true }, modifier = Modifier.testTag("interp-button")) {
-                Text((kf?.interpolation?.kind()?.label ?: "-") + " ▾")
+                Text(kf?.interpolation?.kind()?.label ?: "-")
+                MlIcon(MlIcons.ExpandMore, null, size = 18.dp)
             }
             DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                 InterpolationKind.values().forEach { k ->

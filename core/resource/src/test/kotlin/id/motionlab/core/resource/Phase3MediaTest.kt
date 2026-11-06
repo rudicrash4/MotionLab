@@ -143,3 +143,93 @@ class BoundedCacheTest {
         c.clear(); assertEquals(0L, c.totalCost)
     }
 }
+
+class MediaPermissionPolicyTest {
+    private val P = MediaPermissionPolicy
+
+    @Test fun android13AsksOneGranularPermissionPerCategory() {
+        assertEquals(listOf(P.READ_MEDIA_IMAGES), P.permissionsFor(33, setOf(MediaType.IMAGES)))
+        assertEquals(listOf(P.READ_MEDIA_VIDEO), P.permissionsFor(33, setOf(MediaType.VIDEO)))
+        assertEquals(listOf(P.READ_MEDIA_AUDIO), P.permissionsFor(33, setOf(MediaType.AUDIO)))
+    }
+
+    @Test fun android14AddsTheUserSelectedPermissionForVisualMediaOnly() {
+        assertEquals(listOf(P.READ_MEDIA_IMAGES, P.READ_MEDIA_VISUAL_USER_SELECTED), P.permissionsFor(34, setOf(MediaType.IMAGES)))
+        assertEquals(listOf(P.READ_MEDIA_IMAGES, P.READ_MEDIA_VIDEO, P.READ_MEDIA_VISUAL_USER_SELECTED), P.permissionsFor(35, setOf(MediaType.IMAGES, MediaType.VIDEO)))
+        assertEquals(listOf(P.READ_MEDIA_AUDIO), P.permissionsFor(34, setOf(MediaType.AUDIO)))
+    }
+
+    @Test fun android12AndOlderUseOnlyLegacyReadStorage() {
+        for (sdk in listOf(23, 28, 29, 32)) {
+            assertEquals(listOf(P.READ_EXTERNAL_STORAGE), P.permissionsFor(sdk, MediaType.values().toSet()))
+        }
+    }
+
+    @Test fun neverAsksForAnythingOutsideTheDocumentedSet() {
+        for (sdk in listOf(23, 29, 32, 33, 34, 36)) for (t in MediaType.values()) {
+            assertTrue(P.ALL.containsAll(P.permissionsFor(sdk, setOf(t))))
+        }
+        assertTrue(P.ALL.none { it.contains("MANAGE_EXTERNAL_STORAGE") })
+    }
+
+    @Test fun grantedMeansFullAccess() {
+        assertEquals(MediaAccessState.FULL, P.accessFor(33, MediaType.IMAGES, setOf(P.READ_MEDIA_IMAGES), true, false))
+        assertEquals(MediaAccessState.FULL, P.accessFor(30, MediaType.AUDIO, setOf(P.READ_EXTERNAL_STORAGE), true, false))
+        // A grant for another category does not unlock this one.
+        assertEquals(MediaAccessState.NOT_ASKED, P.accessFor(33, MediaType.VIDEO, setOf(P.READ_MEDIA_IMAGES), false, false))
+    }
+
+    @Test fun partialVisualAccessOnAndroid14() {
+        val partial = setOf(P.READ_MEDIA_VISUAL_USER_SELECTED)
+        assertEquals(MediaAccessState.PARTIAL, P.accessFor(34, MediaType.IMAGES, partial, true, true))
+        assertEquals(MediaAccessState.PARTIAL, P.accessFor(34, MediaType.VIDEO, partial, true, true))
+        assertTrue(P.canBrowse(MediaAccessState.PARTIAL))
+        assertTrue("the user may be offered 'allow all' again", P.mayRequest(MediaAccessState.PARTIAL))
+        // The partial grant means nothing for audio, nor before Android 14.
+        assertEquals(MediaAccessState.DENIED, P.accessFor(34, MediaType.AUDIO, partial, true, true))
+        assertEquals(MediaAccessState.DENIED, P.accessFor(33, MediaType.IMAGES, partial, true, true))
+    }
+
+    @Test fun deniedThenPermanentlyDeniedAreDistinguished() {
+        assertEquals(MediaAccessState.NOT_ASKED, P.accessFor(33, MediaType.IMAGES, emptySet(), false, false))
+        assertEquals(MediaAccessState.DENIED, P.accessFor(33, MediaType.IMAGES, emptySet(), true, true))
+        assertEquals(MediaAccessState.PERMANENTLY_DENIED, P.accessFor(33, MediaType.IMAGES, emptySet(), true, false))
+        assertTrue(P.mayRequest(MediaAccessState.NOT_ASKED))
+        assertTrue(P.mayRequest(MediaAccessState.DENIED))
+        assertTrue("no repeated prompts once only Settings can help", !P.mayRequest(MediaAccessState.PERMANENTLY_DENIED))
+        assertTrue(!P.canBrowse(MediaAccessState.DENIED))
+        assertTrue(!P.canBrowse(MediaAccessState.PERMANENTLY_DENIED))
+    }
+
+    @Test fun textsExplainWhyAndOfferTheFallback() {
+        for (t in MediaType.values()) {
+            assertTrue(P.rationale(t).contains("MotionLab needs access"))
+            assertTrue(P.settingsExplanation(t).contains("Settings"))
+            assertTrue(P.settingsExplanation(t).contains("system picker"))
+        }
+    }
+
+    @Test fun sameMediaMatchesByUriOrByNameAndSize() {
+        assertTrue(MediaUriPolicy.sameMedia("content://media/external/images/media/1", "a.jpg", 10, "content://media/external/images/media/1", "x", 0))
+        assertTrue(MediaUriPolicy.sameMedia("file:///data/media/u.jpg", "a.jpg", 1234, "content://media/external/images/media/9", "a.jpg", 1234))
+        assertTrue(!MediaUriPolicy.sameMedia("file:///u.jpg", "a.jpg", 1234, "content://m/9", "a.jpg", 99))
+        assertTrue(!MediaUriPolicy.sameMedia("file:///u.jpg", "a.jpg", 0, "content://m/9", "a.jpg", 0))
+        assertTrue(!MediaUriPolicy.sameMedia("file:///u.jpg", "a.jpg", 5, "content://m/9", "b.jpg", 5))
+    }
+
+    @Test fun onlyGalleryMediaStoreUrisAreReferencedDirectly() {
+        assertTrue(MediaUriPolicy.isMediaStoreItem("content", "media", "external"))
+        assertTrue(!MediaUriPolicy.isMediaStoreItem("content", "media", "picker"))
+        assertTrue(!MediaUriPolicy.isMediaStoreItem("file", "media", "external"))
+        assertTrue(!MediaUriPolicy.isMediaStoreItem("content", "com.android.providers.downloads.documents", "document"))
+    }
+}
+
+class ExifOrientationTest {
+    @Test fun rotationAndAxisSwapFollowTheExifTable() {
+        assertEquals(0, ExifOrientation.degrees(1)); assertEquals(0, ExifOrientation.degrees(0))
+        assertEquals(180, ExifOrientation.degrees(3)); assertEquals(90, ExifOrientation.degrees(6)); assertEquals(270, ExifOrientation.degrees(8))
+        assertTrue(ExifOrientation.swapsAxes(6)); assertTrue(ExifOrientation.swapsAxes(8)); assertTrue(!ExifOrientation.swapsAxes(3)); assertTrue(!ExifOrientation.swapsAxes(1))
+        assertTrue(ExifOrientation.mirrored(2)); assertTrue(ExifOrientation.mirrored(5)); assertTrue(!ExifOrientation.mirrored(6))
+    }
+}

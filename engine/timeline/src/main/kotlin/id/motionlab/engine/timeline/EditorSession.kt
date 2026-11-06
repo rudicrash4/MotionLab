@@ -94,20 +94,35 @@ class EditorSession(
      * in ONE undo step. Returns the new clip id.
      */
     @Synchronized
-    fun addAssetClip(assetId: String, startUs: Long): String {
+    fun addAssetClip(assetId: String, startUs: Long): String = insertAsset(assetId, startUs).clipId
+
+    /**
+     * Places an imported asset at [startUs] (the playhead) and selects the new clip; track creation + clip are ONE undo step.
+     * Track choice, in order: the [preferredTrackId] if it has the right kind, is unlocked and is free at that time; any other
+     * unlocked track of the right kind that is free at that time; otherwise a NEW track. The clip therefore always starts at
+     * [startUs] (never pushed later behind an existing clip, which would leave the preview empty at the playhead).
+     * [AssetInsertion.note] explains a locked-track skip.
+     */
+    @Synchronized
+    fun insertAsset(assetId: String, startUs: Long, preferredTrackId: String? = null): AssetInsertion {
         val a = asset(assetId) ?: throw MlException(ErrorCode.NOT_FOUND, "Unknown media $assetId")
         val plan = AssetPlanner.plan(a, canvasWidth, canvasHeight)
-        val existing = timeline.tracks.lastOrNull { it.kind == plan.trackKind && !it.locked }
+        val start = startUs.coerceAtLeast(0)
+        val ofKind = timeline.tracks.filter { it.kind == plan.trackKind }
+        val preferred = preferredTrackId?.let { id -> ofKind.firstOrNull { it.id == id } }
+        val lockedSkipped = preferred?.locked == true
+        val candidates = listOfNotNull(preferred) + ofKind.asReversed().filter { it.id != preferred?.id }
+        val existing = candidates.firstOrNull { !it.locked && it.firstFreeStart(start, plan.durationUs) == start }
         val trackId = existing?.id ?: ids.next("track")
-        val start = existing?.firstFreeStart(startUs, plan.durationUs) ?: startUs
         val clipId = ids.next("clip")
         val clip = MediaClip(clipId, start, plan.durationUs, assetId, payload = plan.payload, sourceDurationUs = plan.sourceDurationUs)
         val cmds = ArrayList<Command>(2)
-        if (existing == null) cmds += AddTrack(Track(trackId, "${plan.trackKind.label} ${timeline.tracks.count { it.kind == plan.trackKind } + 1}", plan.trackKind))
+        if (existing == null) cmds += AddTrack(Track(trackId, "${plan.trackKind.label} ${ofKind.size + 1}", plan.trackKind))
         cmds += AddClip(trackId, clip)
         execute(CompositeCommand("Add ${a.displayName ?: "media"}", cmds))
         select(Selection(clipIds = setOf(clipId)))
-        return clipId
+        val note = if (lockedSkipped) "The selected track is locked, so the clip went to ${if (existing == null) "a new" else "another"} ${plan.trackKind.label.lowercase()} track" else null
+        return AssetInsertion(clipId, trackId, existing == null, start, plan.durationUs, note)
     }
 
     @Synchronized
@@ -460,3 +475,6 @@ class EditorSession(
         const val KEYFRAME_DUPLICATE_OFFSET_US = 500_000L
     }
 }
+
+/** What [EditorSession.insertAsset] did. */
+data class AssetInsertion(val clipId: String, val trackId: String, val createdTrack: Boolean, val startUs: Long, val durationUs: Long, val note: String?)

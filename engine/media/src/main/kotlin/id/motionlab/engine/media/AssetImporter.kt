@@ -11,8 +11,10 @@ import id.motionlab.core.common.ErrorCode
 import id.motionlab.core.common.MlException
 import id.motionlab.core.common.MlLog
 import id.motionlab.core.project.AssetRefDto
+import id.motionlab.core.resource.ExifOrientation
 import id.motionlab.core.resource.FontValidator
 import id.motionlab.core.resource.MediaClassifier
+import id.motionlab.core.resource.MediaUriPolicy
 import id.motionlab.core.resource.ResourceKind
 import java.io.File
 import java.io.FileOutputStream
@@ -65,8 +67,13 @@ class AssetImporter(
         return Info(name, size, mime)
     }
 
+    /** Gallery items (content://media/external/...) are referenced directly while the media permission lasts; no copy is made. */
+    private fun isDirectMediaStore(uri: Uri): Boolean =
+        MediaUriPolicy.isMediaStoreItem(uri.scheme, uri.authority, uri.pathSegments.firstOrNull())
+
     private fun tryPersist(uri: Uri): Boolean {
         if (uri.scheme != "content") return false
+        if (isDirectMediaStore(uri)) return true
         return try {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             true
@@ -154,10 +161,23 @@ class AssetImporter(
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
             ?: throw java.io.FileNotFoundException("cannot open $uri")
         if (opts.outWidth <= 0 || opts.outHeight <= 0) throw MlException(ErrorCode.DECODE, "Not a readable image")
+        // Photos taken sideways carry an EXIF orientation: the shown size is the CORRECTED one (the decoder rotates accordingly).
+        val swap = ExifOrientation.swapsAxes(readExifOrientation(uri))
         return AssetRefDto(
             id = UUID.randomUUID().toString(), uri = uri.toString(), kind = "IMAGE", displayName = info.name,
-            width = opts.outWidth, height = opts.outHeight, mimeType = opts.outMimeType ?: info.mime, sizeBytes = info.size, addedAtMs = clock(),
+            width = if (swap) opts.outHeight else opts.outWidth, height = if (swap) opts.outWidth else opts.outHeight, mimeType = opts.outMimeType ?: info.mime, sizeBytes = info.size, addedAtMs = clock(),
         )
+    }
+
+    private fun readExifOrientation(uri: Uri): Int {
+        if (android.os.Build.VERSION.SDK_INT < 24) return 1
+        return try {
+            context.contentResolver.openInputStream(uri)?.use {
+                android.media.ExifInterface(it).getAttributeInt(android.media.ExifInterface.TAG_ORIENTATION, 1)
+            } ?: 1
+        } catch (e: Exception) {
+            1
+        }
     }
 
     private fun probeAv(uri: Uri, info: Info, kind: ResourceKind): AssetRefDto {

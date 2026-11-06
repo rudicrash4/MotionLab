@@ -38,8 +38,10 @@ fun PreviewOverlay(c: EditorController, modifier: Modifier = Modifier) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 val cw = s.canvasWidth.toDouble(); val chh = s.canvasHeight.toDouble()
-                val k = size.width / cw // screen px per canvas px
-                fun toCanvas(o: Offset) = (o.x / k - cw / 2) to (o.y / k - chh / 2)
+                // The overlay covers the whole (square) preview surface; the canvas is letterboxed inside it exactly like the GL scene.
+                val vm = PreviewMath.viewMap(size.width, size.height, s.canvasWidth, s.canvasHeight)
+                val k = vm.pxPerCanvasPx // screen px per canvas px
+                fun toCanvas(o: Offset) = vm.toCanvasX(o.x.toDouble()) to vm.toCanvasY(o.y.toDouble())
                 val frame = s.committedState.let { s.frame() }
                 val sel = c.selection
                 val selItem = frame.items.firstOrNull { it.clip.id in sel.clipIds }
@@ -118,16 +120,19 @@ fun PreviewOverlay(c: EditorController, modifier: Modifier = Modifier) {
         @Suppress("UNUSED_VARIABLE") val sv = c.settingsVersion // grid toggle
         val sel = c.selection
         val cw = s.canvasWidth.toDouble(); val chh = s.canvasHeight.toDouble()
-        val k = (size.width / cw).toFloat()
-        fun sp(x: Double, y: Double) = Offset(((x + cw / 2) * k).toFloat(), ((y + chh / 2) * k).toFloat())
+        val vm = PreviewMath.viewMap(size.width.toInt(), size.height.toInt(), s.canvasWidth, s.canvasHeight)
+        fun sp(x: Double, y: Double) = Offset(vm.toScreenX(x).toFloat(), vm.toScreenY(y).toFloat())
         if (c.previewSettings.showGrid) {
+            // Grid lines cover the canvas rectangle only (not the letterbox margin).
             val gridColor = Color.White.copy(alpha = 0.25f)
+            val x0 = vm.offsetX.toFloat(); val y0 = vm.offsetY.toFloat()
+            val gw = (cw * vm.pxPerCanvasPx).toFloat(); val gh = (chh * vm.pxPerCanvasPx).toFloat()
             for (i in 1..2) {
-                drawLine(gridColor, Offset(size.width * i / 3f, 0f), Offset(size.width * i / 3f, size.height), 1f)
-                drawLine(gridColor, Offset(0f, size.height * i / 3f), Offset(size.width, size.height * i / 3f), 1f)
+                drawLine(gridColor, Offset(x0 + gw * i / 3f, y0), Offset(x0 + gw * i / 3f, y0 + gh), 1f)
+                drawLine(gridColor, Offset(x0, y0 + gh * i / 3f), Offset(x0 + gw, y0 + gh * i / 3f), 1f)
             }
-            drawLine(gridColor, Offset(size.width / 2, 0f), Offset(size.width / 2, size.height), 1f)
-            drawLine(gridColor, Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 1f)
+            drawLine(gridColor, Offset(x0 + gw / 2, y0), Offset(x0 + gw / 2, y0 + gh), 1f)
+            drawLine(gridColor, Offset(x0, y0 + gh / 2), Offset(x0 + gw, y0 + gh / 2), 1f)
         }
         val item = s.frame().items.firstOrNull { it.clip.id in sel.clipIds } ?: return@Canvas
         val g = geometry(c, item) ?: return@Canvas

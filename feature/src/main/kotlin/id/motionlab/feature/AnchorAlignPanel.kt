@@ -74,7 +74,7 @@ fun AnchorAlignPanel(c: EditorController, modifier: Modifier = Modifier) {
                             }
                         },
                         modifier = Modifier.testTag("anchor-${row + 1}-${col + 1}"),
-                    ) { Text(if (row == 0 && col == 0) "●" else "·") }
+                    ) { MlIcon(MlIcons.RadioOff, null, size = 14.dp) }
                 }
             }
         }

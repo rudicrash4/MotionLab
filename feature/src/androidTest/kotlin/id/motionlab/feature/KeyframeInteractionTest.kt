@@ -106,6 +106,7 @@ class KeyframeInteractionTest {
         selectClip(f)
         f.show()
         val preset = PresetLibrary.all().first()
+        rule.onNodeWithTag("prop-cat-ANIMATION").performClick()
         rule.onNodeWithTag("presets-button").performScrollTo().performClick()
         rule.onNodeWithTag("preset-${preset.id}").performClick()
         rule.waitForIdle()
@@ -123,11 +124,11 @@ class KeyframeInteractionTest {
         key(f, 0, 1.0)
         val moving = key(f, 500_000, 0.5) // absolute 1.5 s -> x = 150 px
         f.show()
-        rule.onNodeWithTag("clip-canvas").performTouchInput { click(Offset(150f, 62.dp.toPx())) }
+        rule.onNodeWithTag("clip-canvas").performTouchInput { click(Offset(150f, 46.5.dp.toPx())) }
         rule.waitForIdle()
         assertEquals(setOf(KeyframeRef(owner(f), prop, moving.id)), f.controller.state.selection.keyframes)
         rule.onNodeWithTag("clip-canvas").performTouchInput {
-            down(Offset(150f, 62.dp.toPx())); moveBy(Offset(30f, 0f)); moveBy(Offset(20f, 0f)); up()
+            down(Offset(150f, 46.5.dp.toPx())); moveBy(Offset(30f, 0f)); moveBy(Offset(20f, 0f)); up()
         }
         rule.waitForIdle()
         assertEquals(listOf(0L, 1_000_000L), track(f).keyframes.map { it.timeUs })
@@ -207,13 +208,13 @@ class KeyframeInteractionTest {
         val b = f.session.anim(owner(f)).properties.track(PropertyNames.ROTATION).at(500_000)!!
         f.show()
         // both properties' keyframes at the same time form ONE diamond: tapping selects both
-        rule.onNodeWithTag("clip-canvas").performTouchInput { click(Offset(150f, 62.dp.toPx())) }
+        rule.onNodeWithTag("clip-canvas").performTouchInput { click(Offset(150f, 46.5.dp.toPx())) }
         rule.waitForIdle()
         assertEquals(
             setOf(KeyframeRef(owner(f), prop, a.id), KeyframeRef(owner(f), PropertyNames.ROTATION, b.id)),
             f.controller.state.selection.keyframes,
         )
-        rule.onNodeWithTag("clip-canvas").performTouchInput { down(Offset(150f, 62.dp.toPx())); moveBy(Offset(50f, 0f)); up() }
+        rule.onNodeWithTag("clip-canvas").performTouchInput { down(Offset(150f, 46.5.dp.toPx())); moveBy(Offset(50f, 0f)); up() }
         rule.waitForIdle()
         assertEquals(1_000_000L, track(f).keyframes.single().timeUs)
         assertEquals(1_000_000L, f.session.anim(owner(f)).properties.track(PropertyNames.ROTATION).keyframes.single().timeUs)

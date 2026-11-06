@@ -39,6 +39,29 @@ object PreviewMath {
         return intArrayOf((surfaceW - w) / 2, (surfaceH - h) / 2, w.coerceAtLeast(1), h.coerceAtLeast(1))
     }
 
+    /** Side of the square preview viewport: the largest square that fits the free area (never negative). */
+    fun squareSide(availW: Double, availH: Double): Double = minOf(availW, availH).coerceAtLeast(0.0)
+
+    /**
+     * Mapping between a preview SURFACE (screen px, origin top-left) and canvas coordinates (origin = canvas centre).
+     * The canvas is letterboxed inside the surface with its own aspect ratio, so a 1:1 surface can show a 16:9 or 9:16
+     * project without any distortion. The GL scene and the touch overlay both use [letterbox], so they always agree.
+     */
+    class ViewMap(val offsetX: Double, val offsetY: Double, val pxPerCanvasPx: Double, val canvasW: Int, val canvasH: Int) {
+        fun toCanvasX(screenX: Double): Double = (screenX - offsetX) / pxPerCanvasPx - canvasW / 2.0
+        fun toCanvasY(screenY: Double): Double = (screenY - offsetY) / pxPerCanvasPx - canvasH / 2.0
+        fun toScreenX(x: Double): Double = offsetX + (x + canvasW / 2.0) * pxPerCanvasPx
+        fun toScreenY(y: Double): Double = offsetY + (y + canvasH / 2.0) * pxPerCanvasPx
+        /** True when the screen point lies inside the visible canvas rectangle. */
+        fun insideCanvas(screenX: Double, screenY: Double): Boolean =
+            screenX >= offsetX && screenY >= offsetY && screenX <= offsetX + canvasW * pxPerCanvasPx && screenY <= offsetY + canvasH * pxPerCanvasPx
+    }
+
+    fun viewMap(surfaceW: Int, surfaceH: Int, canvasW: Int, canvasH: Int): ViewMap {
+        val b = letterbox(surfaceW, surfaceH, canvasW, canvasH)
+        return ViewMap(b[0].toDouble(), b[1].toDouble(), b[2].toDouble() / canvasW, canvasW, canvasH)
+    }
+
     /** Parses "#RRGGBB" / "#AARRGGBB"; returns [fallback] on anything else. Result is ARGB. */
     fun parseColor(text: String?, fallback: Int): Int {
         val t = text?.trim() ?: return fallback

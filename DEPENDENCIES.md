@@ -42,3 +42,7 @@ No new dependencies. Only existing Compose/Material3 APIs were used (FlowRow not
 
 ## Phase 3
 Added to `:feature` (already in the version catalog): `androidx.activity:activity-compose` 1.9.0 (pickers), `androidx.media3:media3-exoplayer` and `media3-ui` 1.11.1 (media preview). All Apache-2.0. `:engine:media` now depends on `:core:project` (project module, no new library). No other dependencies; no new Android permissions.
+
+## Phase 3.1
+No new libraries. Icons are drawn from Material Icons path data (Apache 2.0, see OPEN_SOURCE_LICENSES.md) with Compose's own `ImageVector`/`PathParser`; EXIF orientation uses the framework `android.media.ExifInterface` (API 24+; below that photos are shown unrotated).
+New Android permissions (manifest): `READ_MEDIA_IMAGES`, `READ_MEDIA_VIDEO`, `READ_MEDIA_AUDIO`, `READ_MEDIA_VISUAL_USER_SELECTED`, `READ_EXTERNAL_STORAGE` (`maxSdkVersion="32"`). `MANAGE_EXTERNAL_STORAGE` is not used.

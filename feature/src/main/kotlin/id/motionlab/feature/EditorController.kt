@@ -199,6 +199,19 @@ class EditorController(
         }
     }
 
+    /** Track the timeline should scroll to (vertically); consumed by [TimelinePanel]. Bumped on every insertion. */
+    var revealTrackId: String? by mutableStateOf(null)
+        private set
+    var revealCounter: Int by mutableIntStateOf(0)
+        private set
+
+    /** After inserting media: show the new clip's start horizontally, ask the panel to show its track row vertically. */
+    fun revealInsertion(ins: id.motionlab.engine.timeline.AssetInsertion) {
+        viewport = viewport.revealingClip(ins.startUs, timelineWidthPx.coerceAtLeast(100f))
+        revealTrackId = ins.trackId
+        revealCounter++
+    }
+
     fun seek(timeUs: Long) {
         session.seekTo(timeUs)
         playheadUs = session.currentTimeUs
@@ -226,6 +239,13 @@ class EditorController(
 
     fun redo() {
         if (session.canRedo) { session.redo(); message = null }
+    }
+
+    /** The track holding the selected clip, if any: new media prefers it (when its kind fits and it is not locked). */
+    fun selectedTrackId(): String? {
+        val ids = selection.clipIds
+        if (ids.isEmpty()) return null
+        return timeline.tracks.firstOrNull { t -> t.clips.any { it.id in ids } }?.id
     }
 
     fun ownerOfSelection(): AnimationOwner? {

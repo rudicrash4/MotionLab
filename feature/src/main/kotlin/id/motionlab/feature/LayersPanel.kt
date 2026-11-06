@@ -66,7 +66,7 @@ fun LayersPanel(c: EditorController, modifier: Modifier = Modifier) {
             OutlinedButton(onClick = { single?.let { id -> c.session.select(c.selection.withLayerGroup(tl, id)) } },
                 enabled = single != null, modifier = Modifier.testTag("layer-select-group")) { Text("Select group") }
             Box {
-                OutlinedButton(onClick = { parentMenu = true }, enabled = single != null, modifier = Modifier.testTag("layer-parent")) { Text("Parent ▾") }
+                MenuButton("Parent", "layer-parent") { if (single != null) parentMenu = true }
                 DropdownMenu(expanded = parentMenu, onDismissRequest = { parentMenu = false }) {
                     DropdownMenuItem(text = { Text("(none)") }, onClick = {
                         parentMenu = false
@@ -97,14 +97,14 @@ fun LayersPanel(c: EditorController, modifier: Modifier = Modifier) {
                 ) {
                     Box(Modifier.width((depth * 16).dp))
                     val hasChildren = tl.layers.any { it.parentId == layer.id }
-                    IconCell(if (!hasChildren) "·" else if (layer.collapsed) "▸" else "▾", "Expand ${layer.name}", "layer-collapse-${layer.id}") {
+                    IconCell(if (!hasChildren) MlIcons.Handle else if (layer.collapsed) MlIcons.ChevronRight else MlIcons.ExpandMore, "Expand ${layer.name}", "layer-collapse-${layer.id}") {
                         c.run { c.session.execute(SetLayerFlags(layer.id, collapsed = !layer.collapsed)) }
                     }
                     Text("${layer.name} (${layer.type.label})", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    IconCell(if (layer.visible) "👁" else "∅", "Toggle visibility of ${layer.name}", "layer-visible-${layer.id}") {
+                    IconCell(if (layer.visible) MlIcons.Visible else MlIcons.Hidden, "Toggle visibility of ${layer.name}", "layer-visible-${layer.id}") {
                         c.run { c.session.execute(SetLayerFlags(layer.id, visible = !layer.visible)) }
                     }
-                    IconCell(if (layer.locked) "🔒" else "🔓", "Toggle lock of ${layer.name}", "layer-lock-${layer.id}") {
+                    IconCell(if (layer.locked) MlIcons.Lock else MlIcons.LockOpen, "Toggle lock of ${layer.name}", "layer-lock-${layer.id}") {
                         c.run { c.session.execute(SetLayerFlags(layer.id, locked = !layer.locked)) }
                     }
                 }

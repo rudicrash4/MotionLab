@@ -31,3 +31,23 @@ object MediaClassifier {
         }
     }
 }
+
+/**
+ * EXIF orientation (values 1..8 of the TIFF/EXIF tag) as a rotation plus an optional mirror. Phone cameras store most
+ * photos sideways and rely on this tag; ignoring it shows the picture rotated and with the wrong aspect ratio.
+ */
+object ExifOrientation {
+    /** Clockwise degrees to rotate the stored pixels (0, 90, 180, 270). */
+    fun degrees(orientation: Int): Int = when (orientation) {
+        3, 4 -> 180
+        6, 5 -> 90
+        8, 7 -> 270
+        else -> 0
+    }
+
+    /** True when the stored pixels are mirrored horizontally before rotating (orientations 2, 4, 5, 7). */
+    fun mirrored(orientation: Int): Boolean = orientation == 2 || orientation == 4 || orientation == 5 || orientation == 7
+
+    /** True when width and height trade places after correcting (a 90 / 270 degree turn). */
+    fun swapsAxes(orientation: Int): Boolean = degrees(orientation).let { it == 90 || it == 270 }
+}

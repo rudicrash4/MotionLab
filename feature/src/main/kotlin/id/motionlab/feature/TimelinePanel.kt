@@ -25,6 +25,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,6 +72,7 @@ import id.motionlab.engine.timeline.SnapEngine
 import id.motionlab.engine.timeline.Timecode
 import id.motionlab.engine.timeline.Timeline
 import id.motionlab.engine.timeline.TimelineHit
+import id.motionlab.engine.timeline.TimelineScroll
 import id.motionlab.engine.timeline.TimelineLayout
 import id.motionlab.engine.timeline.TimelineViewport
 import id.motionlab.engine.timeline.TrackKind
@@ -78,13 +80,15 @@ import id.motionlab.engine.timeline.TrimClipEnd
 import id.motionlab.engine.timeline.TrimClipStart
 import kotlin.math.abs
 
-private val ROW_EXPANDED = 80.dp
-private val ROW_COLLAPSED = 56.dp
-private val RULER_HEIGHT = 32.dp
+// Compact mobile layout (Phase 3.1): was 80 / 56 / 32 / 120 dp.
+private val ROW_EXPANDED = 60.dp
+private val ROW_COLLAPSED = 48.dp
+private val RULER_HEIGHT = 26.dp
 private val HANDLE_WIDTH = 18.dp
 private val KEYFRAME_TOUCH_RADIUS = 16.dp
 private val SNAP_THRESHOLD = 10.dp
-private val HEADER_WIDTH = 120.dp
+private val HEADER_WIDTH = 108.dp
+private val HEADER_BUTTON = 34.dp
 
 private fun kindColor(kind: TrackKind): Color = when (kind) {
     TrackKind.VIDEO -> Color(0xFF2E6F9E)
@@ -149,6 +153,14 @@ fun TimelinePanel(c: EditorController, modifier: Modifier = Modifier, media: Med
     val scroll = rememberScrollState()
     val contentHeight = with(density) { TimelineLayout.totalHeight(rows).toDp() }.coerceAtLeast(ROW_COLLAPSED)
     val byId = remember(headers) { headers.associateBy { it.id } }
+    var viewportHeightPx by remember { mutableStateOf(0) }
+    // After an insertion, scroll vertically (least amount) so the track of the new clip is fully visible.
+    LaunchedEffect(c.revealCounter) {
+        val id = c.revealTrackId ?: return@LaunchedEffect
+        val row = rows.firstOrNull { it.trackId == id } ?: return@LaunchedEffect
+        val target = TimelineScroll.revealRow(row.top, row.bottom, scroll.value.toFloat(), viewportHeightPx.toFloat())
+        if (target != scroll.value.toFloat()) scroll.animateScrollTo(target.toInt())
+    }
 
     Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
         Row(Modifier.fillMaxWidth().height(RULER_HEIGHT)) {
@@ -157,10 +169,10 @@ fun TimelinePanel(c: EditorController, modifier: Modifier = Modifier, media: Med
             }
             Ruler(c, Modifier.weight(1f).fillMaxSize())
         }
-        Row(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxSize().onSizeChanged { viewportHeightPx = it.height }) {
             Column(Modifier.width(HEADER_WIDTH).fillMaxSize().verticalScroll(scroll)) {
                 if (rows.isEmpty()) {
-                    Text("No tracks. Use ⋯ → Add track.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
+                    Text("No tracks yet. Tap Add media, or use the + menu.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(8.dp))
                 }
                 rows.forEach { row ->
                     val model = byId[row.trackId] ?: return@forEach
@@ -189,19 +201,19 @@ private fun TrackHeader(c: EditorController, track: TrackHeaderModel, height: Dp
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            track.name + (track.layerName?.let { " ↳$it" } ?: ""),
+            track.name + (track.layerName?.let { " · $it" } ?: ""),
             style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.height(16.dp),
+            modifier = Modifier.height(14.dp),
         )
         Row {
-            HeaderButton(if (track.locked) "🔒" else "🔓", if (track.locked) "Unlock ${track.name}" else "Lock ${track.name}", "lock-${track.id}") {
+            HeaderButton(if (track.locked) MlIcons.Lock else MlIcons.LockOpen, if (track.locked) "Unlock ${track.name}" else "Lock ${track.name}", "lock-${track.id}") {
                 c.run { c.session.execute(SetTrackFlags(track.id, locked = !track.locked)) }
             }
-            HeaderButton(if (track.visible) "👁" else "∅", if (track.visible) "Hide ${track.name}" else "Show ${track.name}", "visible-${track.id}") {
+            HeaderButton(if (track.visible) MlIcons.Visible else MlIcons.Hidden, if (track.visible) "Hide ${track.name}" else "Show ${track.name}", "visible-${track.id}") {
                 c.run { c.session.execute(SetTrackFlags(track.id, visible = !track.visible)) }
             }
             Box {
-                HeaderButton("⋮", "Track menu ${track.name}", "menu-${track.id}") { menu = true }
+                HeaderButton(MlIcons.More, "Track menu ${track.name}", "menu-${track.id}") { menu = true }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     DropdownMenuItem(
                         text = { Text(if (track.muted) "Unmute" else "Mute") },
@@ -253,11 +265,8 @@ private fun TrackHeader(c: EditorController, track: TrackHeaderModel, height: Dp
 }
 
 @Composable
-private fun HeaderButton(label: String, description: String, tag: String, onClick: () -> Unit) {
-    Box(
-        Modifier.size(40.dp).clickable(onClick = onClick).testTag(tag).semantics { contentDescription = description },
-        contentAlignment = Alignment.Center,
-    ) { Text(label) }
+private fun HeaderButton(icon: androidx.compose.ui.graphics.vector.ImageVector, description: String, tag: String, onClick: () -> Unit) {
+    MlIconButton(icon, description, tag, touch = HEADER_BUTTON, iconSize = 18.dp, onClick = onClick)
 }
 
 // ------------------------------------------------------------------------------------------------ ruler
@@ -610,7 +619,7 @@ private fun ClipCanvas(c: EditorController, rows: List<RowGeometry>, contentHeig
                     drawIntoCanvas { cv ->
                         cv.nativeCanvas.save()
                         cv.nativeCanvas.clipRect(x0, top, x1, bottom)
-                        cv.nativeCanvas.drawText(clip.payload["text"] ?: clip.assetId ?: track.kind.label, x0 + 10f, (top + bottom) / 2f + 4f, labelPaint)
+                        cv.nativeCanvas.drawText(clip.payload["text"] ?: clip.assetId?.let { aid -> media?.assets?.firstOrNull { it.id == aid }?.displayName } ?: track.kind.label, x0 + 10f, (top + bottom) / 2f + 4f, labelPaint)
                         cv.nativeCanvas.restore()
                     }
                 }

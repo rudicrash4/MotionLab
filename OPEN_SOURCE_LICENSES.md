@@ -12,6 +12,7 @@ must ship with any distribution of the app. The full Apache 2.0 text is in `LICE
 | JUnit 4.13.2 | Test only | EPL 1.0 | https://junit.org/junit4/ | Not shipped in the APK |
 | Robolectric 4.16, Truth | Test only | Apache 2.0 | | Not shipped in the APK |
 | **FFmpeg n8.1.3** (optional) | Built from source by `scripts/build_ffmpeg_android.sh` as **shared** libraries, only when you choose to run it | **LGPL 2.1 or later** (configured without `--enable-gpl` and `--enable-nonfree`) | https://github.com/FFmpeg/FFmpeg | See obligations below |
+| **Material Icons** (path data of 50+ glyphs in `feature/.../Icons.kt`) | Vector paths copied into own `ImageVector` builders (no library, no raster files) | **Apache 2.0** (Google Material Design icons) | https://github.com/google/material-design-icons | Phase 3.1. Keyframe prev / next / diamond symbols are MotionLab's own drawings on the same 24 dp grid |
 | google/grafika | **Reference only.** No code copied | Apache 2.0 | https://github.com/google/grafika | Consulted for the EGL/GLES structure |
 | google/oboe | **Not used in Phase 1** | Apache 2.0 | https://github.com/google/oboe | Candidate for the Phase 2 audio engine |
 

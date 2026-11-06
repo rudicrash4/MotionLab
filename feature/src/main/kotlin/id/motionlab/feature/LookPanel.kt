@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
@@ -37,16 +38,14 @@ import id.motionlab.engine.timeline.mask
  * is drawn by the preview renderer: blend modes the renderer cannot draw exactly are shown disabled, not as working.
  */
 @Composable
-internal fun LookSection(c: EditorController, clipId: String) {
+internal fun BlendSection(c: EditorController, clipId: String) {
     val found = c.timeline.findClip(clipId) ?: return
     val (track, clip) = found
     if (!track.kind.hasVisuals) return
     val s = c.session
-    Text("Blend & mask", style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(top = 6.dp))
-
     var blendMenu by remember { mutableStateOf(false) }
     Box {
-        OutlinedButton(onClick = { blendMenu = true }, modifier = Modifier.testTag("blend-button")) { Text("Blend: ${clip.blendMode.label} ▾") }
+        MenuButton("Blend: ${clip.blendMode.label}", "blend-button") { blendMenu = true }
         DropdownMenu(expanded = blendMenu, onDismissRequest = { blendMenu = false }) {
             BlendMode.entries.forEach { m ->
                 DropdownMenuItem(
@@ -58,12 +57,19 @@ internal fun LookSection(c: EditorController, clipId: String) {
             }
         }
     }
+}
 
+@Composable
+internal fun MaskSection(c: EditorController, clipId: String) {
+    val found = c.timeline.findClip(clipId) ?: return
+    val (track, clip) = found
+    if (!track.kind.hasVisuals) return
+    val s = c.session
     val mask = clip.mask
     if (mask == null) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { c.run { s.execute(SetMask(clipId, MaskSpec(MaskShape.RECTANGLE))) } }, modifier = Modifier.testTag("mask-add-rect")) { Text("+ Rectangle mask") }
-            OutlinedButton(onClick = { c.run { s.execute(SetMask(clipId, MaskSpec(MaskShape.ELLIPSE))) } }, modifier = Modifier.testTag("mask-add-ellipse")) { Text("+ Ellipse mask") }
+            OutlinedButton(onClick = { c.run { s.execute(SetMask(clipId, MaskSpec(MaskShape.RECTANGLE))) } }, modifier = Modifier.testTag("mask-add-rect")) { Text("Rectangle mask") }
+            OutlinedButton(onClick = { c.run { s.execute(SetMask(clipId, MaskSpec(MaskShape.ELLIPSE))) } }, modifier = Modifier.testTag("mask-add-ellipse")) { Text("Ellipse mask") }
         }
         return
     }
@@ -75,15 +81,23 @@ internal fun LookSection(c: EditorController, clipId: String) {
         Switch(checked = mask.inverted, onCheckedChange = { commit(mask.copy(inverted = it)) }, modifier = Modifier.testTag("mask-invert"))
     }
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedButton(onClick = { commit(mask.copy(shape = MaskShape.RECTANGLE)) }, modifier = Modifier.testTag("mask-shape-rect")) { Text(if (mask.shape == MaskShape.RECTANGLE) "● Rectangle" else "○ Rectangle") }
-        OutlinedButton(onClick = { commit(mask.copy(shape = MaskShape.ELLIPSE)) }, modifier = Modifier.testTag("mask-shape-ellipse")) { Text(if (mask.shape == MaskShape.ELLIPSE) "● Ellipse" else "○ Ellipse") }
+        FilterChip(
+            selected = mask.shape == MaskShape.RECTANGLE, onClick = { commit(mask.copy(shape = MaskShape.RECTANGLE)) },
+            label = { Text("Rectangle") }, leadingIcon = { MlIcon(if (mask.shape == MaskShape.RECTANGLE) MlIcons.RadioOn else MlIcons.RadioOff, null, size = 16.dp) },
+            modifier = Modifier.testTag("mask-shape-rect"),
+        )
+        FilterChip(
+            selected = mask.shape == MaskShape.ELLIPSE, onClick = { commit(mask.copy(shape = MaskShape.ELLIPSE)) },
+            label = { Text("Ellipse") }, leadingIcon = { MlIcon(if (mask.shape == MaskShape.ELLIPSE) MlIcons.RadioOn else MlIcons.RadioOff, null, size = 16.dp) },
+            modifier = Modifier.testTag("mask-shape-ellipse"),
+        )
         OutlinedButton(onClick = { c.run { s.execute(SetMask(clipId, null)) } }, modifier = Modifier.testTag("mask-remove")) { Text("Remove") }
     }
     MaskSlider(c, clipId, "x", "Position X", mask.cx, -0.5f..0.5f) { mask.copy(cx = it) }
     MaskSlider(c, clipId, "y", "Position Y", mask.cy, -0.5f..0.5f) { mask.copy(cy = it) }
     MaskSlider(c, clipId, "w", "Width", mask.w, 0.05f..2f) { mask.copy(w = it) }
     MaskSlider(c, clipId, "h", "Height", mask.h, 0.05f..2f) { mask.copy(h = it) }
-    MaskSlider(c, clipId, "rot", "Rotation °", mask.rotationDeg, -180f..180f) { mask.copy(rotationDeg = it) }
+    MaskSlider(c, clipId, "rot", "Rotation", mask.rotationDeg, -180f..180f) { mask.copy(rotationDeg = it) }
     MaskSlider(c, clipId, "opacity", "Opacity", mask.opacity, 0f..1f) { mask.copy(opacity = it) }
     MaskSlider(c, clipId, "feather", "Feather", mask.feather, 0f..1f) { mask.copy(feather = it) }
 }

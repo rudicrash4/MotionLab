@@ -38,8 +38,9 @@ import id.motionlab.engine.timeline.TrackKind
  * Draws the session's [id.motionlab.engine.timeline.SceneFrame] with the existing render stack. Render thread only.
  * The frame comes from `session.frame()`, i.e. the same [id.motionlab.engine.timeline.SceneEvaluator] the export uses.
  *
- * Content: there is no video/image decoder in the preview yet, so those clips are drawn as labelled tiles; text clips are
- * rendered with [TextRenderer]; shape clips use the payload ("shape" = rect|ellipse, "color" = #RRGGBB).
+ * Content: image / video clips draw their real decoded pixels (see [PreviewMedia]); text clips are rendered with
+ * [TextRenderer]; shape clips use the payload ("shape" = rect|ellipse, "color" = #RRGGBB). Only a scene created WITHOUT a
+ * media provider (demo / tests) falls back to labelled tiles for image / video clips.
  */
 internal class EditorScene(
     private val session: EditorSession,
@@ -117,6 +118,8 @@ internal class EditorScene(
             try {
                 // Real pixels for image/video clips when they are already decoded; otherwise the labelled tile.
                 val real = media?.frameFor(item.clip, item.trackKind, item.localTimeUs)
+                // Imported media is never replaced by a coloured tile: until its first frame is decoded nothing is drawn for it.
+                if (media != null && real == null && item.clip.assetId != null && (item.trackKind == TrackKind.IMAGE || item.trackKind == TrackKind.VIDEO)) continue
                 val mask = item.clip.mask?.takeIf { it.isActive }
                 val baseKey = real?.key ?: keyOf(item.clip, item.trackKind)
                 val key = if (mask != null) "$baseKey|m${item.clip.payload.filterKeys { it.startsWith(MaskSpec.KEY) }.hashCode()}" else baseKey

@@ -215,6 +215,17 @@ class TimelineViewport(
         }
     }
 
+    /** True when the START of a clip (the part that identifies it) lies inside the visible time range. */
+    fun showsClipStart(startUs: Long, widthPx: Float, marginPx: Float = 24f): Boolean {
+        val px = timeToPx(startUs)
+        return px >= 0f && px <= widthPx - marginPx
+    }
+
+    /** Scrolls horizontally, only when needed, so that a newly inserted clip starting at [startUs] is visible. */
+    fun revealingClip(startUs: Long, widthPx: Float, marginPx: Float = 24f): TimelineViewport =
+        if (showsClipStart(startUs, widthPx, marginPx)) this
+        else TimelineViewport(pxPerSecond, (startUs - pxToDuration(marginPx)).coerceAtLeast(0))
+
     /** Ruler tick spacing: the smallest "nice" step that is at least [minPx] wide on screen. */
     fun rulerStepUs(minPx: Float = 64f): Long {
         for (step in NICE_STEPS_US) if (durationToPx(step) >= minPx) return step
@@ -248,5 +259,16 @@ object Timecode {
     fun snapToFrame(timeUs: Long, fps: Double): Long {
         val frame = Math.round(timeUs / 1_000_000.0 * fps)
         return Math.round(frame * 1_000_000.0 / fps)
+    }
+}
+
+
+/** Vertical counterpart: the least scroll that brings a track row fully into view. */
+object TimelineScroll {
+    fun revealRow(rowTop: Float, rowBottom: Float, scrollY: Float, viewportHeight: Float): Float = when {
+        viewportHeight <= 0f -> scrollY
+        rowTop < scrollY -> rowTop.coerceAtLeast(0f)
+        rowBottom > scrollY + viewportHeight -> (rowBottom - viewportHeight).coerceAtLeast(0f)
+        else -> scrollY
     }
 }

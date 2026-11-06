@@ -1,8 +1,6 @@
 package id.motionlab.feature
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertDoesNotExist
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -44,12 +42,13 @@ class MediaLibraryUiTest {
     @Test fun libraryListsSeparatesAndSearchesMedia() {
         fixtureWithMedia()
         rule.onNodeWithTag("media-library").assertExists()
-        rule.onNodeWithTag("import-photos").assertIsDisplayed()
-        rule.onNodeWithTag("import-audio").assertIsDisplayed()
-        rule.onNodeWithTag("import-fonts").assertIsDisplayed()
+        rule.onNodeWithTag("import-photos").assertIsDisplayed() // Images category: the system Photo Picker
         rule.onNodeWithTag("media-row-img1").assertExists()
         rule.onNodeWithTag("media-row-aud1").assertDoesNotExist() // audio lives in its own category
+        rule.onNodeWithTag("media-cat-FONTS").performClick()
+        rule.onNodeWithTag("import-fonts").assertIsDisplayed() // fonts keep using the document picker
         rule.onNodeWithTag("media-cat-AUDIO").performClick()
+        rule.onNodeWithTag("import-audio").assertIsDisplayed()
         rule.onNodeWithTag("media-row-aud1").assertExists()
         rule.onNodeWithTag("media-cat-IMAGES").performClick()
         rule.onNodeWithTag("media-search").performTextInput("beta")
@@ -85,10 +84,12 @@ class MediaLibraryUiTest {
         // select the fixture clip (a SHAPE clip: visual) and use the Attributes panel
         f.controller.session.select(id.motionlab.engine.timeline.Selection(clipIds = setOf(f.clipId)))
         rule.waitForIdle()
+        rule.onNodeWithTag("prop-cat-BLEND").performClick()
         rule.onNodeWithTag("blend-button").performScrollTo().performClick()
         rule.onNodeWithTag("blend-MULTIPLY").performClick()
         rule.waitForIdle()
         assertEquals(BlendMode.MULTIPLY, f.session.timeline.requireClip(f.clipId).second.blendMode)
+        rule.onNodeWithTag("prop-cat-MASK").performClick()
         rule.onNodeWithTag("mask-add-ellipse").performScrollTo().performClick()
         rule.waitForIdle()
         assertNotNull(f.session.timeline.requireClip(f.clipId).second.mask)
@@ -107,6 +108,7 @@ class MediaLibraryUiTest {
         val f = EditorFixture(rule).show()
         f.controller.session.select(id.motionlab.engine.timeline.Selection(clipIds = setOf(f.clipId)))
         rule.waitForIdle()
+        rule.onNodeWithTag("prop-cat-BLEND").performClick()
         rule.onNodeWithTag("blend-button").performScrollTo().performClick()
         rule.onNodeWithTag("blend-OVERLAY").assertIsNotEnabledCompat()
     }

@@ -87,7 +87,7 @@ fun GraphEditor(c: EditorController, modifier: Modifier = Modifier) {
     val anim = s.anim(owner)
     val animated = anim.properties.tracks.filter { !it.value.isEmpty }.keys.toList()
     if (animated.isEmpty()) {
-        Text("No keyframes yet. Use the ◇ stopwatch in Properties or apply a preset.", modifier.padding(8.dp))
+        Text("No keyframes yet. Use the keyframe diamond in Properties (Transform) or apply a preset (Animation).", modifier.padding(8.dp))
         return
     }
     var chosen by remember(owner) { mutableStateOf<String?>(null) }

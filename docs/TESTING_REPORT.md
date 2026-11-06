@@ -50,3 +50,9 @@ errors that CI will reveal.
 
 ## Phase 3
 JVM in sandbox: timeline 127 OK, core/resource 20 OK. Not run here: Android compile, APK, instrumented tests (MediaImportTest, MediaLibraryUiTest, earlier suites), ProjectCodecPhase3Test. See docs/PHASE3.md.
+
+## Phase 3.1
+JVM run in the sandbox (kotlinc + JUnit 4):
+- engine/timeline: **144 OK** (new: insertion rules, 1:1 viewport / letterbox / touch mapping, reveal-after-insert; one Phase 3 test that encoded the old "push the clip behind" behaviour was replaced by the new rule, not weakened).
+- core/resource: **31 OK** (new: permission policy for API 23-36, partial access, denied vs permanently denied, MediaStore URI policy, dedupe, EXIF table).
+NOT run here (no Android SDK in the sandbox): Gradle compile of Android/Compose code (only a kotlinc parse check found no syntax errors; type errors against Android/Compose cannot be excluded), unit tests of other modules, instrumented tests (`Phase31UiTest` 14, `Phase31PipelineTest` 5, updated `MediaLibraryUiTest`, `KeyframeInteractionTest`, `TimelineInteractionTest`), debug APK. The `assertExists`/`assertDoesNotExist` compile error is fixed by removing the two bogus imports (they are members of `SemanticsNodeInteraction`).

@@ -5,16 +5,18 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -38,8 +40,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import id.motionlab.core.project.AssetRefDto
+import id.motionlab.core.resource.MediaAccessState
+import id.motionlab.core.resource.MediaPermissionPolicy
+import id.motionlab.core.resource.MediaType
 import id.motionlab.core.resource.ResourceKind
-import id.motionlab.engine.timeline.Timecode
+import id.motionlab.engine.media.DeviceMedia
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
@@ -48,13 +53,38 @@ private val FONT_MIME = arrayOf(
     "font/ttf", "font/otf", "application/x-font-ttf", "application/x-font-otf", "application/vnd.ms-opentype", "application/octet-stream",
 )
 
+private fun LibraryCategory.icon() = when (this) {
+    LibraryCategory.IMAGES -> MlIcons.Image
+    LibraryCategory.VIDEOS -> MlIcons.Video
+    LibraryCategory.AUDIO -> MlIcons.Audio
+    LibraryCategory.FONTS -> MlIcons.Font
+}
+
+private fun LibraryCategory.mediaType(): MediaType? = when (this) {
+    LibraryCategory.IMAGES -> MediaType.IMAGES
+    LibraryCategory.VIDEOS -> MediaType.VIDEO
+    LibraryCategory.AUDIO -> MediaType.AUDIO
+    LibraryCategory.FONTS -> null
+}
+
 /**
- * Import + browse the project's media. Import uses the system Photo Picker (photos and videos) and the document picker
- * (audio, fonts): the user hands over exactly the files they choose, so the app needs NO storage permission and shows no
- * permission dialog. Each picker is opened only when the user taps its button.
+ * Add Media. Flow: choose Image / Video / Audio (chips) -> pick a source (this project, or this device) -> tap an item ->
+ * "Add to Timeline" (or the + on the row). The clip goes to the playhead on a suitable track (created when needed) and is
+ * selected; the timeline scrolls to it.
+ *
+ * Sources: files already imported into the project, the device gallery (MediaStore; needs the media permission, requested
+ * only when the user taps "Allow access", after an explanation), and the system Photo Picker / document picker, which work
+ * WITHOUT any permission and stay available when permission is denied. Fonts only use the document picker.
+ *
+ * [accessOverride] lets tests show every permission state deterministically; production passes null.
  */
 @Composable
-fun MediaLibraryPanel(lib: MediaLibraryController, editor: EditorController, modifier: Modifier = Modifier) {
+fun MediaLibraryPanel(lib: MediaLibraryController, editor: EditorController, modifier: Modifier = Modifier, accessOverride: MediaAccessState? = null) {
+    val category = lib.category
+    val mediaType = category.mediaType()
+    val access = rememberMediaAccess(mediaType)
+    val accessState = accessOverride ?: access.state
+
     val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(20)) { uris ->
         lib.import(uris, setOf(ResourceKind.IMAGE, ResourceKind.VIDEO))
     }
@@ -64,64 +94,109 @@ fun MediaLibraryPanel(lib: MediaLibraryController, editor: EditorController, mod
     val fontPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         lib.import(uris, setOf(ResourceKind.FONT))
     }
+    val launchPicker: () -> Unit = {
+        when (category) {
+            LibraryCategory.IMAGES -> photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+            LibraryCategory.VIDEOS -> photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+            LibraryCategory.AUDIO -> audioPicker.launch(arrayOf("audio/*"))
+            LibraryCategory.FONTS -> fontPicker.launch(FONT_MIME)
+        }
+    }
     var previewing by remember { mutableStateOf<AssetRefDto?>(null) }
     var sortMenu by remember { mutableStateOf(false) }
     val items = lib.visible()
+    val onDevice = lib.source == LibrarySource.DEVICE && category != LibraryCategory.FONTS
 
-    Column(modifier.fillMaxWidth().padding(8.dp).testTag("media-library"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(
-                onClick = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) },
-                enabled = !lib.busy, modifier = Modifier.testTag("import-photos"),
-            ) { Text("Photos/Videos") }
-            OutlinedButton(onClick = { audioPicker.launch(arrayOf("audio/*")) }, enabled = !lib.busy, modifier = Modifier.testTag("import-audio")) { Text("Audio") }
-            OutlinedButton(onClick = { fontPicker.launch(FONT_MIME) }, enabled = !lib.busy, modifier = Modifier.testTag("import-fonts")) { Text("Fonts") }
-        }
-        Text(
-            "You choose the files in the system picker; MotionLab can only see what you pick. Originals are never changed or deleted.",
-            style = MaterialTheme.typography.labelSmall, color = MlColors.Muted,
-        )
-        if (lib.missing.isNotEmpty()) {
-            Row(Modifier.fillMaxWidth().background(MlColors.PanelHigh).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "${lib.missing.size} media file(s) can no longer be opened (moved, deleted or access lost). Their clips stay in the project; import the file again to replace it.",
-                    Modifier.weight(1f), color = MlColors.Danger, style = MaterialTheme.typography.bodySmall,
-                )
-                TextButton(onClick = { lib.refreshMissing() }, modifier = Modifier.testTag("media-retry")) { Text("Retry") }
-            }
-        }
-        lib.status?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("media-status")) }
+    val addAsset: (AssetRefDto) -> Unit = { a -> lib.addToTimeline(a, editor.playheadUs, editor.selectedTrackId())?.let(editor::revealInsertion) }
+    val addDevice: (DeviceMedia) -> Unit = { d ->
+        lib.addDeviceToTimeline(d, editor.playheadUs, editor.selectedTrackId()) { ins -> ins?.let(editor::revealInsertion) }
+    }
+
+    Column(modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp).testTag("media-library"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // 1. Image / Video / Audio / Fonts
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
             LibraryCategory.entries.forEach { c ->
                 FilterChip(
-                    selected = lib.category == c, onClick = { lib.category = c },
-                    label = { Text("${c.label} ${lib.countIn(c)}") }, modifier = Modifier.testTag("media-cat-${c.name}"),
+                    selected = category == c, onClick = { lib.selectCategory(c) },
+                    leadingIcon = { MlIcon(c.icon(), null, size = 16.dp) },
+                    label = { Text("${c.label} ${lib.countIn(c)}", maxLines = 1) }, modifier = Modifier.testTag("media-cat-${c.name}"),
                 )
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            OutlinedTextField(
-                value = lib.query, onValueChange = { lib.query = it }, singleLine = true, label = { Text("Search") },
-                modifier = Modifier.weight(1f).testTag("media-search"),
-            )
-            Box {
-                OutlinedButton(onClick = { sortMenu = true }, modifier = Modifier.testTag("media-sort")) { Text(lib.sort.label + " ▾") }
-                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
-                    LibrarySort.entries.forEach { s ->
-                        DropdownMenuItem(text = { Text(s.label) }, modifier = Modifier.testTag("media-sort-${s.name}"), onClick = { lib.sort = s; sortMenu = false })
+        // 2. Source
+        if (category != LibraryCategory.FONTS) {
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                FilterChip(selected = !onDevice, onClick = { lib.source = LibrarySource.PROJECT }, label = { Text("In project") }, modifier = Modifier.testTag("media-src-PROJECT"))
+                FilterChip(selected = onDevice, onClick = { lib.source = LibrarySource.DEVICE }, label = { Text("On this device") }, modifier = Modifier.testTag("media-src-DEVICE"))
+            }
+        }
+        if (lib.missing.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().background(MlColors.PanelHigh).padding(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                MlIcon(MlIcons.Warning, null, tint = MlColors.Danger)
+                Text(
+                    "${lib.missing.size} media file(s) can no longer be opened (moved, deleted or access lost). Their clips stay in the project; import the file again to replace it.",
+                    Modifier.weight(1f).padding(horizontal = 6.dp), color = MlColors.Danger, style = MaterialTheme.typography.bodySmall,
+                )
+                TextButton(onClick = { lib.refreshMissing(); lib.preview.failedAssets.forEach(lib.preview::retry) }, modifier = Modifier.testTag("media-retry")) { Text("Retry") }
+            }
+        }
+        lib.status?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("media-status")) }
+
+        if (!onDevice) {
+            // ---- project assets (+ picker) ----
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(
+                    onClick = launchPicker, enabled = !lib.busy,
+                    modifier = Modifier.testTag(when (category) { LibraryCategory.AUDIO -> "import-audio"; LibraryCategory.FONTS -> "import-fonts"; else -> "import-photos" }),
+                ) {
+                    MlIcon(MlIcons.AddMedia, null, size = 18.dp)
+                    Text(if (category == LibraryCategory.FONTS) "  Choose font files" else "  Choose with system picker", maxLines = 1)
+                }
+                OutlinedTextField(
+                    value = lib.query, onValueChange = { lib.query = it }, singleLine = true, placeholder = { Text("Search") },
+                    leadingIcon = { MlIcon(MlIcons.Search, null) },
+                    modifier = Modifier.weight(1f).testTag("media-search"),
+                )
+                Box {
+                    MlIconButton(MlIcons.Handle, "Sort: ${lib.sort.label}", "media-sort") { sortMenu = true }
+                    DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                        LibrarySort.entries.forEach { s ->
+                            DropdownMenuItem(text = { Text(s.label) }, modifier = Modifier.testTag("media-sort-${s.name}"), onClick = { lib.sort = s; sortMenu = false })
+                        }
                     }
                 }
             }
+            if (items.isEmpty()) {
+                Text(
+                    if (lib.query.isBlank()) "No ${category.label.lowercase()} in this project yet. Use the system picker, or switch to On this device." else "Nothing matches '${lib.query}'.",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("media-empty"),
+                )
+            }
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                items(items, key = { it.id }) { asset ->
+                    AssetRow(lib, asset, asset.id in lib.missing, selected = lib.selectedAssetId == asset.id, onSelect = { lib.selectedAssetId = asset.id }, onAdd = { addAsset(asset) }, onPreview = { previewing = asset })
+                }
+            }
+        } else {
+            // ---- device gallery ----
+            DeviceSection(lib, mediaType!!, accessState, access, launchPicker, addDevice, Modifier.weight(1f, fill = false))
         }
-        if (items.isEmpty()) {
-            Text(
-                if (lib.query.isBlank()) "No ${lib.category.label.lowercase()} yet. Use the buttons above to import." else "Nothing matches '${lib.query}'.",
-                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("media-empty"),
-            )
-        }
-        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(items, key = { it.id }) { asset ->
-                AssetRow(lib, editor, asset, asset.id in lib.missing, onPreview = { previewing = asset })
+
+        // 3. Add to Timeline
+        if (category != LibraryCategory.FONTS) {
+            val selAsset = lib.assets.firstOrNull { it.id == lib.selectedAssetId && it.kind in category.kinds }
+            val selDevice = lib.selectedDevice?.takeIf { onDevice && it.type == mediaType }
+            val name = if (onDevice) selDevice?.name else selAsset?.displayName
+            Row(Modifier.fillMaxWidth().background(MlColors.PanelHigh).padding(6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(name ?: "Tap an item to select it", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium, color = if (name == null) MlColors.Muted else MlColors.OnSurface)
+                Button(
+                    onClick = { if (onDevice) selDevice?.let(addDevice) else selAsset?.let(addAsset) },
+                    enabled = (if (onDevice) selDevice != null else selAsset != null && selAsset.id !in lib.missing) && !lib.busy,
+                    modifier = Modifier.testTag("media-add-selected"),
+                ) {
+                    MlIcon(MlIcons.Add, null, size = 18.dp, tint = androidx.compose.ui.graphics.Color.Black)
+                    Text(" Add to Timeline", maxLines = 1)
+                }
             }
         }
     }
@@ -129,38 +204,117 @@ fun MediaLibraryPanel(lib: MediaLibraryController, editor: EditorController, mod
 }
 
 @Composable
-private fun AssetRow(lib: MediaLibraryController, editor: EditorController, asset: AssetRefDto, missing: Boolean, onPreview: () -> Unit) {
+private fun DeviceSection(
+    lib: MediaLibraryController,
+    type: MediaType,
+    state: MediaAccessState,
+    access: MediaAccessUi,
+    launchPicker: () -> Unit,
+    addDevice: (DeviceMedia) -> Unit,
+    modifier: Modifier,
+) {
+    Column(modifier.fillMaxWidth().testTag("device-browser"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        when (state) {
+            MediaAccessState.NOT_ASKED, MediaAccessState.DENIED -> {
+                Text(MediaPermissionPolicy.rationale(type), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("perm-rationale"))
+                if (state == MediaAccessState.DENIED) Text("Permission was not granted.", color = MlColors.Danger, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("perm-denied"))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = access.request, modifier = Modifier.testTag("perm-allow")) { Text(if (state == MediaAccessState.DENIED) "Try again" else "Allow access") }
+                    OutlinedButton(onClick = launchPicker, modifier = Modifier.testTag("perm-fallback-picker")) { Text("Use system picker") }
+                }
+            }
+            MediaAccessState.PERMANENTLY_DENIED -> {
+                Text(MediaPermissionPolicy.settingsExplanation(type), style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("perm-settings-text"))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(onClick = access.openSettings, modifier = Modifier.testTag("perm-settings")) { Text("Open Settings") }
+                    OutlinedButton(onClick = launchPicker, modifier = Modifier.testTag("perm-fallback-picker")) { Text("Use system picker") }
+                }
+            }
+            MediaAccessState.FULL, MediaAccessState.PARTIAL -> {
+                if (state == MediaAccessState.PARTIAL) {
+                    Text(MediaPermissionPolicy.partialExplanation(), style = MaterialTheme.typography.bodySmall, color = MlColors.Muted, modifier = Modifier.testTag("perm-partial"))
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        OutlinedButton(onClick = access.request, modifier = Modifier.testTag("perm-allow")) { Text("Allow all") }
+                        OutlinedButton(onClick = launchPicker, modifier = Modifier.testTag("perm-fallback-picker")) { Text("Use system picker") }
+                    }
+                }
+                val listState = rememberLazyListState()
+                LaunchedEffect(lib.category, state) { lib.loadDevice(reset = true) }
+                // Lazy paging: when the last loaded item scrolls into view, the next page of 60 is queried.
+                val last by remember { androidx.compose.runtime.derivedStateOf { listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0 } }
+                LaunchedEffect(last, lib.deviceItems.size) { if (last >= lib.deviceItems.size - 6) lib.loadDevice(reset = false) }
+                if (lib.deviceItems.isEmpty() && !lib.deviceLoading) {
+                    Text("No ${lib.category.label.lowercase()} found on this device.", modifier = Modifier.testTag("device-empty"))
+                }
+                LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    items(lib.deviceItems, key = { it.uri }) { item ->
+                        DeviceRow(lib, item, selected = lib.selectedDevice?.uri == item.uri, onSelect = { lib.selectedDevice = item }, onAdd = { addDevice(item) })
+                    }
+                    if (lib.deviceLoading) item { Text("Loading…", Modifier.padding(6.dp), color = MlColors.Muted) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun Thumb(bitmap: androidx.compose.ui.graphics.ImageBitmap?, fallback: androidx.compose.ui.graphics.vector.ImageVector, description: String?) {
+    Box(Modifier.size(52.dp).background(MlColors.Black), contentAlignment = Alignment.Center) {
+        if (bitmap != null) Image(bitmap, description, Modifier.size(52.dp), contentScale = ContentScale.Crop)
+        else MlIcon(fallback, null, tint = MlColors.Muted, size = 24.dp)
+    }
+}
+
+private fun kindIcon(kind: String) = when (kind) { "VIDEO" -> MlIcons.Video; "AUDIO" -> MlIcons.Audio; "FONT" -> MlIcons.Font; else -> MlIcons.Image }
+
+@Composable
+private fun DeviceRow(lib: MediaLibraryController, item: DeviceMedia, selected: Boolean, onSelect: () -> Unit, onAdd: () -> Unit) {
+    val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, item.uri) { value = lib.deviceThumbnail(item)?.asImageBitmap() }
+    val key = item.uri.substringAfterLast('/')
+    val inProject = lib.assetFor(item) != null
+    Row(
+        Modifier.fillMaxWidth().background(if (selected) MlColors.AccentDim.copy(alpha = 0.35f) else MlColors.PanelHigh).clickable(onClick = onSelect).padding(4.dp).testTag("device-row-$key"),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Thumb(thumb, when (item.type) { MediaType.VIDEO -> MlIcons.Video; MediaType.AUDIO -> MlIcons.Audio; else -> MlIcons.Image }, item.name)
+        Column(Modifier.weight(1f)) {
+            Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+            Text(describeDevice(item) + if (inProject) " · in project" else "", style = MaterialTheme.typography.labelSmall, color = MlColors.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        MlIconButton(MlIcons.Add, "Add ${item.name} to timeline", "device-add-$key", tint = MlColors.Accent, onClick = onAdd)
+    }
+}
+
+@Composable
+private fun AssetRow(lib: MediaLibraryController, asset: AssetRefDto, missing: Boolean, selected: Boolean, onSelect: () -> Unit, onAdd: () -> Unit, onPreview: () -> Unit) {
     val thumb by produceState<androidx.compose.ui.graphics.ImageBitmap?>(null, asset.id, missing) {
         value = if (missing || (asset.kind != "IMAGE" && asset.kind != "VIDEO")) null
         else withContext(Dispatchers.IO) { lib.bitmaps.load(asset, 0, 160) { !isActive } }?.asImageBitmap()
     }
     Row(
-        Modifier.fillMaxWidth().background(MlColors.PanelHigh).padding(6.dp).testTag("media-row-${asset.id}"),
+        Modifier.fillMaxWidth().background(if (selected) MlColors.AccentDim.copy(alpha = 0.35f) else MlColors.PanelHigh).clickable(onClick = onSelect).padding(4.dp).testTag("media-row-${asset.id}"),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(Modifier.size(56.dp).background(MlColors.Black), contentAlignment = Alignment.Center) {
-            val t = thumb
-            if (t != null) Image(t, asset.displayName, Modifier.size(56.dp), contentScale = ContentScale.Fit)
-            else Text(when (asset.kind) { "AUDIO" -> "♪"; "FONT" -> "Aa"; else -> "…" })
-        }
+        Thumb(thumb, kindIcon(asset.kind), asset.displayName)
         Column(Modifier.weight(1f)) {
             Text(asset.displayName ?: asset.id, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
             Text(describe(asset), style = MaterialTheme.typography.labelSmall, color = MlColors.Muted, maxLines = 2)
-            if (missing) Text("Missing — cannot be opened", color = MlColors.Danger, style = MaterialTheme.typography.labelSmall)
+            if (missing) Text("Missing: cannot be opened", color = MlColors.Danger, style = MaterialTheme.typography.labelSmall)
         }
-        Column {
-            Row {
-                if (asset.kind != "FONT") {
-                    TextButton(onClick = onPreview, enabled = !missing, modifier = Modifier.testTag("media-preview-${asset.id}")) { Text("Preview") }
-                    TextButton(
-                        onClick = { editor.run { lib.addToTimeline(asset, editor.playheadUs) } },
-                        enabled = !missing, modifier = Modifier.testTag("media-add-${asset.id}"),
-                    ) { Text("+ Timeline", color = MlColors.Accent) }
-                }
-                TextButton(onClick = { lib.remove(asset) }, modifier = Modifier.testTag("media-remove-${asset.id}")) { Text("Remove") }
-            }
+        if (asset.kind != "FONT") {
+            MlIconButton(MlIcons.Play, "Preview ${asset.displayName}", "media-preview-${asset.id}", enabled = !missing, onClick = onPreview)
+            MlIconButton(MlIcons.Add, "Add ${asset.displayName} to timeline", "media-add-${asset.id}", enabled = !missing, tint = MlColors.Accent, onClick = onAdd)
         }
+        MlIconButton(MlIcons.Delete, "Remove ${asset.displayName} from project", "media-remove-${asset.id}") { lib.remove(asset) }
     }
+}
+
+internal fun describeDevice(d: DeviceMedia): String {
+    val parts = ArrayList<String>()
+    if (d.type != MediaType.AUDIO && d.width > 0) parts += "${d.width}×${d.height}"
+    if (d.type != MediaType.IMAGES && d.durationMs > 0) parts += formatDuration(d.durationMs * 1000L)
+    if (d.sizeBytes > 0) parts += formatSize(d.sizeBytes)
+    return parts.joinToString(" · ")
 }
 
 internal fun describe(a: AssetRefDto): String {

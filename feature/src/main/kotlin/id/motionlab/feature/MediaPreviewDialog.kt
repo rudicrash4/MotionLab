@@ -123,7 +123,8 @@ private fun PlayerPreview(asset: AssetRefDto, video: Boolean) {
     Column(Modifier.fillMaxWidth().padding(8.dp)) {
         Row {
             TextButton(onClick = { if (player.isPlaying) player.pause() else player.play() }, modifier = Modifier.testTag("audio-play")) {
-                Text(if (playing) "⏸ Pause" else "▶ Play")
+                MlIcon(if (playing) MlIcons.Pause else MlIcons.Play, if (playing) "Pause" else "Play")
+                Text(if (playing) " Pause" else " Play")
             }
             Text("${formatDuration(position * 1000)} / ${formatDuration(duration * 1000)}", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 12.dp).testTag("audio-time"))
         }
