@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.FilterChip
@@ -93,7 +95,8 @@ fun GraphEditor(c: EditorController, modifier: Modifier = Modifier) {
     var chosen by remember(owner) { mutableStateOf<String?>(null) }
     val selectedProp = c.selection.keyframes.firstOrNull { it.owner == owner }?.property
     val prop = chosen?.takeIf { it in animated } ?: selectedProp?.takeIf { it in animated } ?: animated.first()
-    var speedMode by remember { mutableStateOf(false) }
+    var mode by remember { mutableStateOf(GraphMode.EASE) }
+    val speedMode = mode == GraphMode.SPEED
     var window by remember(owner, prop) {
         val tr = anim.properties.track(prop)
         val (ta, tb) = GraphMath.fitTimeRange(tr)
@@ -101,25 +104,36 @@ fun GraphEditor(c: EditorController, modifier: Modifier = Modifier) {
         mutableStateOf(GraphWindow(ta.toDouble(), tb.toDouble(), va, vb))
     }
 
-    Column(modifier.fillMaxSize().padding(4.dp).testTag("graph-editor")) {
+    // The whole editor scrolls vertically when the panel is short; the graphs keep a fixed, comfortable touch height.
+    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(4.dp).testTag("graph-editor"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            animated.forEach { p ->
-                FilterChip(selected = p == prop, onClick = { chosen = p }, label = { Text(PropertyRegistry.get(p)?.displayName ?: p) }, modifier = Modifier.testTag("graph-prop-$p"))
+            GraphMode.entries.forEach { m ->
+                FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m.label) }, modifier = Modifier.testTag("graph-mode-${m.name.lowercase()}"))
             }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = !speedMode, onClick = { speedMode = false }, label = { Text("Value") }, modifier = Modifier.testTag("graph-mode-value"))
-            FilterChip(selected = speedMode, onClick = { speedMode = true }, label = { Text("Speed") }, modifier = Modifier.testTag("graph-mode-speed"))
-            OutlinedButton(onClick = {
-                val tr = s.anim(owner).properties.track(prop)
-                val (ta, tb) = GraphMath.fitTimeRange(tr)
-                val (va, vb) = GraphMath.fitValueRange(tr)
-                window = GraphWindow(ta.toDouble(), tb.toDouble(), va, vb)
-            }, modifier = Modifier.testTag("graph-fit")) { Text("Fit") }
+        if (mode != GraphMode.POSITION) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                animated.forEach { p ->
+                    FilterChip(selected = p == prop, onClick = { chosen = p }, label = { Text(PropertyRegistry.get(p)?.displayName ?: p) }, modifier = Modifier.testTag("graph-prop-$p"))
+                }
+                if (mode != GraphMode.EASE) OutlinedButton(onClick = {
+                    val tr = s.anim(owner).properties.track(prop)
+                    val (ta, tb) = GraphMath.fitTimeRange(tr)
+                    val (va, vb) = GraphMath.fitValueRange(tr)
+                    window = GraphWindow(ta.toDouble(), tb.toDouble(), va, vb)
+                }, modifier = Modifier.testTag("graph-fit")) { Text("Fit") }
+            }
         }
-        GraphCanvas(c, owner, prop, speedMode, window, { window = it }, Modifier.fillMaxWidth().weight(1f))
+        when (mode) {
+            GraphMode.EASE -> EaseTab(c, owner, prop)
+            GraphMode.VALUE, GraphMode.SPEED -> GraphCanvas(c, owner, prop, speedMode, window, { window = it }, Modifier.fillMaxWidth().height(280.dp))
+            GraphMode.POSITION -> PositionTab(c, owner)
+        }
     }
 }
+
+/** The four graph tabs. Every one is functional; none is a placeholder. */
+private enum class GraphMode(val label: String) { EASE("Ease"), VALUE("Value"), SPEED("Speed"), POSITION("Position") }
 
 private fun speedRange(track: KeyframeTrack, win: GraphWindow, w: Float): Pair<Double, Double> {
     var m = 1e-6

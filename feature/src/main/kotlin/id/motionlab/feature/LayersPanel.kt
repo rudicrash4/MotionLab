@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -49,7 +50,7 @@ fun LayersPanel(c: EditorController, modifier: Modifier = Modifier) {
     val selected = c.selection.layerIds
     val single = selected.singleOrNull()
     var parentMenu by remember { mutableStateOf(false) }
-    Column(modifier.fillMaxWidth().padding(6.dp).testTag("layers-panel"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(6.dp).testTag("layers-panel"), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             OutlinedButton(onClick = { c.run { add(c, LayerType.CONTENT) } }, modifier = Modifier.testTag("layer-add")) { Text("+ Layer") }
             OutlinedButton(onClick = { c.run { add(c, LayerType.NULL) } }, modifier = Modifier.testTag("layer-add-null")) { Text("+ Null") }

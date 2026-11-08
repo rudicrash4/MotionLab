@@ -3,6 +3,8 @@ package id.motionlab.feature
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -69,7 +71,7 @@ fun PathEditor(c: EditorController, modifier: Modifier = Modifier) {
     var selectedPoint by remember(owner) { mutableStateOf<String?>(null) }
     var corner by remember { mutableStateOf(false) }
 
-    Column(modifier.fillMaxSize().padding(4.dp).testTag("path-editor"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(4.dp).testTag("path-editor"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
             if (path == null) {
                 OutlinedButton(onClick = {
@@ -97,7 +99,7 @@ fun PathEditor(c: EditorController, modifier: Modifier = Modifier) {
                 Text("Animate along path (0 to 1 over the whole clip)")
             }
         }
-        PathCanvas(c, owner, path, selectedPoint, { selectedPoint = it }, corner, Modifier.fillMaxWidth().weight(1f))
+        PathCanvas(c, owner, path, selectedPoint, { selectedPoint = it }, corner, Modifier.fillMaxWidth().height(300.dp))
     }
 }
 

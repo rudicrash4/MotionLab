@@ -272,7 +272,7 @@ private fun PlaybackBar(c: EditorController) {
 @Composable
 private fun TimelineToolbar(c: EditorController, library: MediaLibraryController) {
     val s = c.session
-    var trackMenu by remember { mutableStateOf(false) }
+    var advanced by remember { mutableStateOf(false) }
     var clipMenu by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     val owner = c.ownerOfSelection()?.takeIf { s.exists(it) }
@@ -303,17 +303,6 @@ private fun TimelineToolbar(c: EditorController, library: MediaLibraryController
                 })
             }
         }
-        Box {
-            MlIconButton(MlIcons.Timeline, "Add empty track", "tb-add-track", touch = 40.dp) { trackMenu = true }
-            DropdownMenu(expanded = trackMenu, onDismissRequest = { trackMenu = false }) {
-                TrackKind.values().filter { it != TrackKind.OVERLAY }.forEach { k ->
-                    DropdownMenuItem(text = { Text(k.label) }, modifier = Modifier.testTag("add-track-${k.name}"), onClick = {
-                        trackMenu = false
-                        c.run { s.addTrack(k) }
-                    })
-                }
-            }
-        }
         MlIconButton(MlIcons.Split, "Split at playhead", "tb-split", touch = 40.dp) { c.run { s.splitAtPlayhead() } }
         MlIconButton(MlIcons.Delete, "Delete selection", "tb-delete", touch = 40.dp) { c.run { s.deleteSelection() } }
         FilterChip(selected = c.snapEnabled, onClick = { c.snapEnabled = !c.snapEnabled }, label = { Text("Snap") }, modifier = Modifier.height(32.dp).testTag("tb-snap"))
@@ -330,6 +319,14 @@ private fun TimelineToolbar(c: EditorController, library: MediaLibraryController
                 item(if (c.multiSelect) "Multi-select: on" else "Multi-select: off", "tb-multi") { c.multiSelect = !c.multiSelect }
                 item("Select all", "tb-select-all") {
                     s.select(Selection(clipIds = s.timeline.tracks.flatMap { t -> t.clips.map { it.id } }.toSet()))
+                }
+                // Advanced only: importing media creates the right track by itself, so empty tracks are not part of the primary UI.
+                item(if (advanced) "Advanced: hide empty tracks" else "Advanced: add empty track…", "tb-advanced") { advanced = !advanced; more = true }
+                if (advanced) TrackKind.values().filter { it != TrackKind.OVERLAY }.forEach { k ->
+                    DropdownMenuItem(text = { Text("Empty ${k.label} track") }, modifier = Modifier.testTag("add-track-${k.name}"), onClick = {
+                        more = false; advanced = false
+                        c.run { s.addTrack(k) }
+                    })
                 }
                 item("Zoom out", "tb-zoom-out") { c.viewport = c.viewport.zoomed(1 / 1.5, c.timelineWidthPx / 2f) }
                 item("Zoom in", "tb-zoom-in") { c.viewport = c.viewport.zoomed(1.5, c.timelineWidthPx / 2f) }
@@ -376,7 +373,7 @@ private fun PanelTabs(c: EditorController, library: MediaLibraryController, open
         if (open) {
             Box(Modifier.fillMaxSize()) {
                 when (tab) {
-                    0 -> PropertyPanel(c, fontFamilies = library.assets.filter { it.kind == "FONT" }.mapNotNull { it.fontFamily })
+                    0 -> PropertyPanel(c, library = library)
                     1 -> AnchorAlignPanel(c)
                     2 -> GraphEditor(c)
                     3 -> PathEditor(c)

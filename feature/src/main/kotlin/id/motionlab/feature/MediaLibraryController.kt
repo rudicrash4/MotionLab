@@ -217,7 +217,7 @@ class MediaLibraryController(
     fun countIn(c: LibraryCategory): Int = assets.count { it.kind in c.kinds }
 
     /** Imports picked [uris]; failures are reported per file and never stop the other files. */
-    fun import(uris: List<Uri>, expected: Set<ResourceKind>?) {
+    fun import(uris: List<Uri>, expected: Set<ResourceKind>?, insert: InsertTarget? = null, onFonts: ((List<String>) -> Unit)? = null) {
         if (uris.isEmpty()) return
         importJob?.cancel()
         busy = true
@@ -233,11 +233,28 @@ class MediaLibraryController(
                 if (ok.isNotEmpty()) {
                     session.putAssets(ok.map { it.asset })
                     registerFonts()
-                    ok.firstOrNull()?.asset?.let { selectedAssetId = it.id; source = LibrarySource.PROJECT }
-                    ok.firstOrNull()?.asset?.kind?.let { k -> LibraryCategory.entries.firstOrNull { k in it.kinds }?.let { category = it } }
+                    ok.firstOrNull { it.asset.kind != "FONT" }?.asset?.let { selectedAssetId = it.id; source = LibrarySource.PROJECT }
+                    ok.firstOrNull { it.asset.kind != "FONT" }?.asset?.kind?.let { k -> LibraryCategory.entries.firstOrNull { k in it.kinds }?.let { category = it } }
                 }
+                if (onFonts != null) onFonts(ok.mapNotNull { it.asset.fontFamily })
+                // Direct media layers: every imported visual/audio file becomes a clip on a suitable track (created on
+                // demand), placed back-to-back from the playhead; the last one stays selected and is revealed.
+                var inserted = 0
+                if (insert != null) {
+                    var at = insert.atUs()
+                    var last: AssetInsertion? = null
+                    for (o in ok) {
+                        if (o.asset.kind == "FONT") continue
+                        val ins = addToTimeline(o.asset, at, insert.preferredTrackId())
+                        if (ins != null) { last = ins; at = ins.startUs + ins.durationUs; inserted++ }
+                    }
+                    last?.let(insert.onInserted)
+                }
+                val insertedStatus = status.takeIf { inserted > 0 }
                 status = buildString {
-                    if (ok.isNotEmpty()) append("Imported ${ok.size}. ")
+                    if (onFonts != null && ok.isNotEmpty()) append("Imported ${ok.size} font(s). ")
+                    else if (inserted > 0) append(if (inserted == 1) (insertedStatus ?: "Added to the timeline") + ". " else "Added $inserted layers to the timeline. ")
+                    else if (ok.isNotEmpty()) append("Imported ${ok.size}. ")
                     if (bad.isNotEmpty()) append("Failed: " + bad.joinToString("; ") { "${it.name} — ${it.reason}" })
                     ok.mapNotNull { it.note }.distinct().forEach { append(" ").append(it).append('.') }
                 }.trim().ifEmpty { null }
@@ -293,6 +310,14 @@ class MediaLibraryController(
         null
     }
 
+    private val composeFamilies = HashMap<String, androidx.compose.ui.text.font.FontFamily>()
+
+    /** Compose font family for an imported font (for previews); falls back to the default family if it cannot be resolved. */
+    fun composeFamily(family: String): androidx.compose.ui.text.font.FontFamily =
+        composeFamilies.getOrPut(family) {
+            try { androidx.compose.ui.text.font.FontFamily(fonts.resolve(family, false, false)) } catch (e: Exception) { androidx.compose.ui.text.font.FontFamily.Default }
+        }
+
     /** Makes every imported font available to text layers by its family name. Invalid files are skipped with a log entry. */
     fun registerFonts() {
         for (a in session.assets) {
@@ -309,3 +334,10 @@ class MediaLibraryController(
 }
 
 private const val DEVICE_PAGE = 60
+
+/** Where freshly imported media goes: at the playhead, on the selected track when suitable, then revealed by [onInserted]. */
+class InsertTarget(
+    val atUs: () -> Long,
+    val preferredTrackId: () -> String?,
+    val onInserted: (AssetInsertion) -> Unit,
+)

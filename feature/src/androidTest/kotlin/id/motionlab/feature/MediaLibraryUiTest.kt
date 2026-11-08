@@ -45,8 +45,8 @@ class MediaLibraryUiTest {
         rule.onNodeWithTag("import-photos").assertIsDisplayed() // Images category: the system Photo Picker
         rule.onNodeWithTag("media-row-img1").assertExists()
         rule.onNodeWithTag("media-row-aud1").assertDoesNotExist() // audio lives in its own category
-        rule.onNodeWithTag("media-cat-FONTS").performClick()
-        rule.onNodeWithTag("import-fonts").assertIsDisplayed() // fonts keep using the document picker
+        rule.onNodeWithTag("media-cat-FONTS").assertDoesNotExist() // fonts are imported from the text configuration
+        rule.onNodeWithTag("import-fonts").assertDoesNotExist()
         rule.onNodeWithTag("media-cat-AUDIO").performClick()
         rule.onNodeWithTag("import-audio").assertIsDisplayed()
         rule.onNodeWithTag("media-row-aud1").assertExists()

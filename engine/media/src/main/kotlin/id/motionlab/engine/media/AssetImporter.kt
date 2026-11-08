@@ -11,6 +11,8 @@ import id.motionlab.core.common.ErrorCode
 import id.motionlab.core.common.MlException
 import id.motionlab.core.common.MlLog
 import id.motionlab.core.project.AssetRefDto
+import id.motionlab.core.resource.ContentSniffer
+import id.motionlab.core.resource.SniffResult
 import id.motionlab.core.resource.ExifOrientation
 import id.motionlab.core.resource.FontValidator
 import id.motionlab.core.resource.MediaClassifier
@@ -90,8 +92,10 @@ class AssetImporter(
      */
     fun import(uri: Uri, expected: Set<ResourceKind>? = null, cancelled: () -> Boolean = { false }): ImportOutcome {
         val info = queryInfo(uri)
-        val kind = MediaClassifier.classify(info.mime, info.name)
-        if (kind == ResourceKind.OTHER) return ImportOutcome.Failed(info.name, "Unsupported file type (${info.mime ?: "unknown"})")
+        // Labels (MIME, extension) are only a hint: the first bytes decide when they are recognisable.
+        val sniffed = sniffHeader(uri)
+        val kind = ContentSniffer.resolveKind(MediaClassifier.classify(info.mime, info.name), sniffed)
+        if (kind == ResourceKind.OTHER) return ImportOutcome.Failed(info.name, "Unsupported file type (${info.mime ?: "unknown"}). MotionLab imports images, video, audio and TTF/OTF fonts; this file's content is not a recognised format.")
         if (expected != null && kind !in expected) return ImportOutcome.Failed(info.name, "This is ${kind.name.lowercase()}, not ${expected.joinToString("/") { it.name.lowercase() }}")
         return try {
             when (kind) {
@@ -109,6 +113,18 @@ class AssetImporter(
         } catch (e: RuntimeException) {
             ImportOutcome.Failed(info.name, "Unexpected problem: ${e.message}")
         }
+    }
+
+    /** Reads only the first bytes (never the whole file): safe for multi-GB videos and for any content URI. */
+    private fun sniffHeader(uri: Uri): SniffResult? = try {
+        context.contentResolver.openInputStream(uri)?.use { ins ->
+            val buf = ByteArray(ContentSniffer.HEADER_BYTES)
+            var n = 0
+            while (n < buf.size) { val r = ins.read(buf, n, buf.size - n); if (r < 0) break; n += r }
+            ContentSniffer.sniff(buf, n)
+        }
+    } catch (e: Exception) {
+        null // an unreadable header is reported by the real probe below, with a better message
     }
 
     private fun importMedia(uri: Uri, info: Info, kind: ResourceKind, cancelled: () -> Boolean): ImportOutcome {
@@ -129,7 +145,8 @@ class AssetImporter(
                 ResourceKind.VIDEO, ResourceKind.AUDIO -> probeAv(useUri, info, kind)
                 else -> throw MlException(ErrorCode.UNSUPPORTED, "Unsupported category")
             }
-            return ImportOutcome.Imported(dto, note)
+            val gif = if (kind == ResourceKind.IMAGE && dto.mimeType == "image/gif") "GIF: only the first frame is used (animated GIF playback is not supported)" else null
+            return ImportOutcome.Imported(dto, listOfNotNull(note, gif).joinToString(". ").ifEmpty { null })
         } catch (e: Exception) {
             copied?.delete() // do not leave orphan copies behind a failed import
             throw e
@@ -160,7 +177,7 @@ class AssetImporter(
         val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true } // bounds only: no pixels are loaded
         context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, opts) }
             ?: throw java.io.FileNotFoundException("cannot open $uri")
-        if (opts.outWidth <= 0 || opts.outHeight <= 0) throw MlException(ErrorCode.DECODE, "Not a readable image")
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) throw MlException(ErrorCode.DECODE, "This device cannot decode this image (${info.mime ?: "unknown type"}); the format or its codec is not available on this Android version")
         // Photos taken sideways carry an EXIF orientation: the shown size is the CORRECTED one (the decoder rotates accordingly).
         val swap = ExifOrientation.swapsAxes(readExifOrientation(uri))
         return AssetRefDto(

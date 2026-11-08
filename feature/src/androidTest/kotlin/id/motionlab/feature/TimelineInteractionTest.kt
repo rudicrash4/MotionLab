@@ -205,7 +205,10 @@ class TimelineInteractionTest {
     @Test
     fun addTrackAndAddClipFromTheToolbar() {
         val f = EditorFixture(rule).show()
-        rule.onNodeWithTag("tb-add-track").performClick()
+        // Empty tracks are an advanced action now: they live in the overflow menu, not the primary toolbar.
+        rule.onNodeWithTag("tb-add-track").assertDoesNotExist()
+        rule.onNodeWithTag("tb-more").performClick()
+        rule.onNodeWithTag("tb-advanced").performClick()
         rule.onNodeWithTag("add-track-TEXT").performClick()
         rule.waitForIdle()
         assertEquals(TrackKind.TEXT, f.session.timeline.tracks.last().kind)

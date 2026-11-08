@@ -86,7 +86,7 @@ internal fun categoriesFor(owner: AnimationOwner, kind: TrackKind?): List<Proper
 
 /** Edits the selected clip/layer, one category at a time (Transform, Content, Mask, Blend, Audio, Animation). */
 @Composable
-fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier, fontFamilies: List<String> = emptyList()) {
+fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier, library: MediaLibraryController? = null) {
     val s = c.session
     val owner = c.ownerOfSelection()?.takeIf { s.exists(it) }
     @Suppress("UNUSED_VARIABLE") val editVersion = c.timeline // observable read: recompose on committed/previewed edits
@@ -122,7 +122,7 @@ fun PropertyPanel(c: EditorController, modifier: Modifier = Modifier, fontFamili
                     val anim = s.anim(owner)
                     for (def in PropertyRegistry.all()) PropertyRow(c, owner, def, localT, anim.properties.isAnimated(def.name), anim.properties.track(def.name).at(localT)?.id)
                 }
-                PropertyCategory.CONTENT -> if (owner is AnimationOwner.ClipOwner) ContentSection(c, owner.clipId, fontFamilies)
+                PropertyCategory.CONTENT -> if (owner is AnimationOwner.ClipOwner) ContentSection(c, owner.clipId, library)
                 PropertyCategory.MASK -> if (owner is AnimationOwner.ClipOwner) MaskSection(c, owner.clipId)
                 PropertyCategory.BLEND -> if (owner is AnimationOwner.ClipOwner) BlendSection(c, owner.clipId)
                 PropertyCategory.AUDIO -> if (owner is AnimationOwner.ClipOwner) AudioSection(c, owner.clipId)
@@ -176,7 +176,7 @@ private fun PresetsMenu(c: EditorController, owner: AnimationOwner) {
 }
 
 @Composable
-private fun ContentSection(c: EditorController, clipId: String, fontFamilies: List<String>) {
+private fun ContentSection(c: EditorController, clipId: String, library: MediaLibraryController?) {
     val found = c.timeline.findClip(clipId) ?: return
     val (track, clip) = found
     if (track.kind != TrackKind.TEXT && track.kind != TrackKind.SHAPE) return
@@ -189,18 +189,8 @@ private fun ContentSection(c: EditorController, clipId: String, fontFamilies: Li
         )
     }
     if (track.kind == TrackKind.TEXT) {
-        var fontMenu by remember { mutableStateOf(false) }
-        Box {
-            MenuButton("Font: ${clip.payload["font"] ?: "System default"}", "font-button") { fontMenu = true }
-            DropdownMenu(expanded = fontMenu, onDismissRequest = { fontMenu = false }) {
-                DropdownMenuItem(text = { Text("System default") }, modifier = Modifier.testTag("font-default"), onClick = {
-                    fontMenu = false
-                    c.run { c.session.execute(SetClipPayload(clipId, clip.payload - "font")) }
-                })
-                fontFamilies.forEach { f ->
-                    DropdownMenuItem(text = { Text(f) }, modifier = Modifier.testTag("font-$f"), onClick = { fontMenu = false; set("font", f) })
-                }
-            }
+        if (library != null) TextFontSection(library, clip.payload["font"], clip.payload["text"] ?: "") { family ->
+            c.run { c.session.execute(SetClipPayload(clipId, if (family == null) clip.payload - "font" else clip.payload + ("font" to family))) }
         }
     }
     var color by remember(clipId, clip.payload["color"]) { mutableStateOf(clip.payload["color"] ?: "") }

@@ -27,7 +27,7 @@ class MediaClassifierTest {
 
 /** Builds a minimal but structurally valid TrueType file in memory. */
 internal object FontFixture {
-    fun ttf(family: String = "Test Sans", dropTable: String? = null, outlines: Boolean = true, tag: Long = 0x00010000L): ByteArray {
+    fun ttf(family: String = "Test Sans", dropTable: String? = null, outlines: Boolean = true, tag: Long = 0x00010000L, cff: Boolean = false): ByteArray {
         val nameTable = run {
             val s = family.toByteArray(Charsets.UTF_16BE)
             val b = ByteArrayOutputStream()
@@ -38,7 +38,7 @@ internal object FontFixture {
             b.toByteArray()
         }
         val names = mutableListOf("cmap", "head", "hhea", "hmtx", "maxp", "name")
-        if (outlines) names += "glyf"
+        if (outlines) names += if (cff) "CFF " else "glyf"
         if (dropTable != null) names -= dropTable
         val bodies = names.associateWith { if (it == "name") nameTable else ByteArray(16) { 1 } }
         val out = ByteArrayOutputStream()
@@ -67,6 +67,15 @@ class FontValidatorTest {
         val info = FontValidator.validate(FontFixture.ttf("My Family"))
         assertEquals("My Family", info.family)
         assertEquals(false, info.isOpenType)
+    }
+
+    @Test fun validOtfWithCffOutlinesIsAcceptedAndSniffedAsFont() {
+        val otf = FontFixture.ttf("Sample Serif", tag = 0x4F54544FL, cff = true)
+        val info = FontValidator.validate(otf)
+        assertEquals("Sample Serif", info.family)
+        assertEquals(true, info.isOpenType)
+        assertEquals(ResourceKind.FONT, ContentSniffer.sniff(otf)?.kind)
+        assertEquals(ResourceKind.FONT, ContentSniffer.sniff(FontFixture.ttf())?.kind)
     }
 
     @Test fun otfNeedsCffOutlines() {

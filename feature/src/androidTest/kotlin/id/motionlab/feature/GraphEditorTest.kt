@@ -47,6 +47,7 @@ class GraphEditorTest {
         f.session.select(Selection(clipIds = setOf(f.clipId)))
         f.show()
         rule.onNodeWithTag("tab-Graph").performClick()
+        rule.onNodeWithTag("graph-mode-value").performClick() // the editor opens on the Ease tab
         rule.waitForIdle()
         return f
     }
